@@ -663,6 +663,7 @@ const state = {
   tmdbCurrentShow: null, // 当前展开查看的 TMDB 剧集
   tmdbCurrentSeason: 1,  // 当前选中的季
   tmdbSeasonCache: new Map(), // tmdb id -> season -> episodes
+  tmdbAliasCache: new Map(),  // tmdb id -> [别名列表]（中文/英文/日文等）
   resultGroups: [],     // 选集搜索按字幕组分好的组 [{name, items}]
   activeGroup: null,    // 当前筛选的字幕组（null = 全部）
   searchSeq: 0,         // 搜索序号，防止旧结果覆盖新结果
@@ -1470,6 +1471,9 @@ function renderQueue() {
             : it.status === 'paused'
               ? '<button class="icon-btn" data-qpause="${i}" type="button">继续</button>'
               : ''}
+          ${it.status === 'error'
+            ? '<button class="icon-btn" data-qretry="${i}" type="button" title="重新开始下载">重试</button>'
+            : ''}
           <button class="icon-btn" data-qdel="${i}" type="button">移除</button>
         </div>
       </div>
@@ -1486,6 +1490,10 @@ function renderQueue() {
   els.queueList.querySelectorAll('[data-qpause]').forEach((b) => b.addEventListener('click', () => {
     const it = state.queue[Number(b.dataset.qpause)];
     if (it) togglePauseQueueItem(it.id);
+  }));
+  els.queueList.querySelectorAll('[data-qretry]').forEach((b) => b.addEventListener('click', () => {
+    const it = state.queue[Number(b.dataset.qretry)];
+    if (it) retryQueueItem(it.id);
   }));
   els.queueList.querySelectorAll('[data-qdel]').forEach((b) => b.addEventListener('click', () => {
     const it = state.queue[Number(b.dataset.qdel)];
@@ -1742,6 +1750,27 @@ function togglePauseQueueItem(id) {
     }
     renderQueue();
   }
+  scheduleQueueSave();
+}
+
+function retryQueueItem(id) {
+  const it = state.queue.find((q) => q.id === id);
+  if (!it) return;
+  if (it.torrent) {
+    try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
+    it.torrent = null;
+  }
+  it.status = 'waiting';
+  it.error = null;
+  it.progress = 0;
+  it.speed = 0;
+  it.downloaded = 0;
+  it.total = 0;
+  it.file = null;
+  it.fileIndex = 0;
+  it.fileReady = false;
+  renderQueue();
+  scheduleQueue();
   scheduleQueueSave();
 }
 
@@ -2163,14 +2192,14 @@ function matchEpisode(title) {
   const t = title;
   let m;
   if ((m = /第\s*([一二三四五六七八九十百\d]+)\s*(?:话|話|集)/.exec(t))) return { n: cnNum(m[1]), batch: null };
-  if ((m = /(?:^|[^0-9A-Za-z])S\d{1,2}E(\d{1,2})(?:[^0-9A-Za-z]|$)/i.exec(t))) return { n: parseInt(m[1], 10), batch: null };
-  if ((m = /(?:^|[^0-9A-Za-z])(?:EP|Ep|ep|E)\s*(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
-  if ((m = /(?:^|[^0-9A-Za-z])(?:\[|\()0*(\d{1,2})(?:\]|\))(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])S\d{1,2}E(\d{1,4})(?:[^0-9A-Za-z]|$)/i.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])(?:EP|Ep|ep|E)\s*(\d{1,4})(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])(?:\[|\()0*(\d{1,4})(?:\]|\))(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
   if ((m = /第\s*(\d+)\s*[-~至]\s*(\d+)\s*(?:话|話|集)/.exec(t))) return { n: null, batch: [parseInt(m[1], 10), parseInt(m[2], 10)] };
   if ((m = /(?:^|[^0-9A-Za-z])(\d{1,2})\s*[-~]\s*(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: null, batch: [parseInt(m[1], 10), parseInt(m[2], 10)] };
-  if ((m = /(?:^|[^0-9A-Za-z])(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) {
+  if ((m = /(?:^|[^0-9A-Za-z])(\d{1,4})(?:[^0-9A-Za-z]|$)/.exec(t))) {
     const n = parseInt(m[1], 10);
-    if ([480, 576, 720, 1080, 2160].includes(n)) return null;
+    if ([480, 576, 720, 1080, 2160, 4320, 1920, 3840].includes(n) || (n >= 1900 && n <= 2099)) return null;
     return { n, batch: null };
   }
   return null;
@@ -2319,6 +2348,45 @@ function renderEpisodeResults(items, label, rawCount) {
   probeResults(items);
 }
 
+async function fetchAnimeAliases(show) {
+  if (!show || !show.id) return [];
+  const cached = state.tmdbAliasCache.get(show.id);
+  if (cached) return cached;
+  const names = [];
+  const push = (s) => {
+    const v = String(s || '').trim();
+    if (v && !names.includes(v)) names.push(v);
+  };
+  push(show.name);
+  push(show.original_name);
+  try {
+    const [alt, tr] = await Promise.allSettled([
+      tmdbApi('/tv/' + show.id + '/alternative_titles'),
+      tmdbApi('/tv/' + show.id + '/translations'),
+    ]);
+    if (alt.status === 'fulfilled' && alt.value && Array.isArray(alt.value.results)) {
+      for (const r of alt.value.results) push(r.title);
+    }
+    if (tr.status === 'fulfilled' && tr.value && Array.isArray(tr.value.translations)) {
+      for (const t of tr.value.translations) {
+        if (t.data) {
+          push(t.data.name);
+          push(t.data.title);
+        }
+      }
+    }
+  } catch (e) { /* 别名拿不到不影响搜索 */ }
+  state.tmdbAliasCache.set(show.id, names);
+  return names;
+}
+
+async function ensureAnimeAliases(show) {
+  const cached = state.tmdbAliasCache.get(show && show.id);
+  if (cached) return cached;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve([]), 8000));
+  return Promise.race([fetchAnimeAliases(show), timeout]);
+}
+
 async function searchEpisodeOnMikan(show, season, ep) {
   const label = (show ? show.name : '') + ' 第' + season + '季 第' + ep + '集';
   els.resultsInfo.textContent = '正在模糊搜索：' + label + '…';
@@ -2326,21 +2394,46 @@ async function searchEpisodeOnMikan(show, season, ep) {
   els.groupFilter.classList.add('hidden');
   updateRightEmpty();
   const pad = String(ep).padStart(2, '0');
+  // 收集 TMDB 中文名 / 英文名 / 日文名 / 各地区别名，尽量覆盖蜜柑上使用的名字
+  const aliases = await ensureAnimeAliases(show);
   const names = [];
-  const zh = baseAnimeName(show && show.name);
-  const jp = baseAnimeName(show && show.original_name);
-  if (zh) names.push(zh);
-  if (jp && jp !== zh) names.push(jp);
+  const pushName = (s) => {
+    const v = String(s || '').trim();
+    if (!v || names.includes(v)) return;
+    names.push(v);
+    const base = baseAnimeName(v);
+    if (base && base !== v && !names.includes(base)) names.push(base);
+  };
+  for (const a of aliases) pushName(a);
+  if (!names.length) {
+    pushName(show && show.name);
+    pushName(show && show.original_name);
+  }
+  const nameCap = names.slice(0, 12);
   const candidates = [];
-  for (const name of names) {
-    candidates.push(name, `${name} ${pad}`, `${name} ${ep}`, `${name} 第${ep}话`, `${name} 第${ep}話`);
+  for (const name of nameCap) {
+    candidates.push(
+      `${name} S${season} ${pad}`,
+      `${name} S${season} E${ep}`,
+      `${name} ${pad}`,
+      `${name} ${ep}`,
+      `${name} 第${ep}话`,
+      `${name} 第${ep}話`,
+      `${name} 第${ep}集`,
+      `${name} 第${season}季 第${ep}话`,
+      `${name} 第${season}季 第${ep}話`,
+      `${name} 第${season}季 第${ep}集`,
+      `${name} E${ep}`,
+      name,
+    );
   }
   const seen = new Set();
-  const uniq = candidates.filter((c) => !seen.has(c) && seen.add(c)).slice(0, 5);
+  const uniq = candidates.filter((c) => !seen.has(c) && seen.add(c)).slice(0, 14);
   const merged = new Map();
   let lastErr = null;
   for (let i = 0; i < uniq.length; i += 2) {
     const batch = uniq.slice(i, i + 2);
+    els.resultsInfo.textContent = '正在搜索（' + (i + batch.length) + '/' + uniq.length + '）：' + label + '…';
     const results = await Promise.allSettled(batch.map((c) => searchMikanLocal(c)));
     for (const r of results) {
       if (r.status === 'fulfilled') {
