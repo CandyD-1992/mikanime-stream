@@ -89,8 +89,19 @@
         maxCacheSize: 16 * 1024 * 1024,
         prefetchProfile: 'network',
       });
+      const ext = String(file.name || '').toLowerCase();
+      const formats = [];
+      if (ext.endsWith('.mkv')) {
+        formats.push(Mediabunny.MATROSKA);
+      } else if (ext.endsWith('.webm')) {
+        formats.push(Mediabunny.WEBM, Mediabunny.MATROSKA);
+      } else if (ext.endsWith('.ts')) {
+        formats.push(Mediabunny.MPEG_TS);
+      } else {
+        formats.push(Mediabunny.MP4, Mediabunny.QTFF);
+      }
       this._input = new Mediabunny.Input({
-        formats: [Mediabunny.MATROSKA],
+        formats,
         source,
       });
 
@@ -103,7 +114,7 @@
         else if (t.type === 'audio' && !audioTrack) audioTrack = t;
       }
       if (!videoTrack && !audioTrack) {
-        throw new Error('MKV 里没有可播放的视频或音轨');
+        throw new Error('文件里没有可播放的视频或音轨');
       }
       if (videoTrack) {
         const codec = await videoTrack.codec;

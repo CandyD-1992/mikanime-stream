@@ -27,6 +27,7 @@ await build({
       export { Output } from '${src('output.js').replaceAll('\\', '/')}'
       export { Conversion } from '${src('conversion.js').replaceAll('\\', '/')}'
       export { MATROSKA } from '${src('input-format.js').replaceAll('\\', '/')}'
+      export { MP4, WEBM, MPEG_TS, QTFF } from '${src('input-format.js').replaceAll('\\', '/')}'
       export { Mp4OutputFormat } from '${src('output-format.js').replaceAll('\\', '/')}'
       export { NullTarget } from '${src('target.js').replaceAll('\\', '/')}'
       export { CustomSource } from '${src('source.js').replaceAll('\\', '/')}'

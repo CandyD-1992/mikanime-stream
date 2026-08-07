@@ -665,6 +665,7 @@ const state = {
   tmdbSeasonCache: new Map(), // tmdb id -> season -> episodes
   resultGroups: [],     // 选集搜索按字幕组分好的组 [{name, items}]
   activeGroup: null,    // 当前筛选的字幕组（null = 全部）
+  searchSeq: 0,         // 搜索序号，防止旧结果覆盖新结果
   dhtPeers: new Set(),  // 服务器 DHT 节点发现的做种者（只在中转模式使用）
   dhtTimer: null,       // DHT 轮询定时器
   queue: [],            // 下载队列 [{id,magnet,title,hash,status,progress,speed,downloaded,total,error,torrent,file}]
@@ -1185,8 +1186,9 @@ async function fetchViaProxy(target, timeoutMs) {
   const urls = custom
     ? [custom.indexOf('{url}') >= 0 ? custom.replace('{url}', enc) : custom + enc]
     : proxyUrls(target);
+  const tryUrls = custom ? urls : urls.slice(0, 3);
   const failures = [];
-  for (const url of urls) {
+  for (const url of tryUrls) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -1240,32 +1242,36 @@ els.searchForm.addEventListener('submit', async (e) => {
     await playMagnet(q);
     return;
   }
+  const seq = ++state.searchSeq;
   closeTmdbDetail();
   state.tmdbSeasonCache.clear();
   els.tmdbSection.classList.remove('hidden');
   els.tmdbInfo.textContent = '正在搜索 TMDB…';
   els.resultsInfo.textContent = '正在搜索…';
   els.results.innerHTML = '';
-  const [tmdbRes, mikanRes] = await Promise.allSettled([
-    searchTmdbShows(q).catch((err) => { throw err }),
-    searchMikanLocal(q),
-  ]);
-  if (tmdbRes.status === 'fulfilled') {
-    state.tmdbShows = tmdbRes.value;
-    renderTmdbSection(state.tmdbShows.length ? '' : 'TMDB 未找到匹配的番剧（可先在设置里填写 API Key）');
-  } else {
+
+  // TMDB 和蜜柑并行搜索，谁先完成谁先显示，互不等待
+  searchTmdbShows(q).then((shows) => {
+    if (state.searchSeq !== seq) return;
+    state.tmdbShows = shows;
+    renderTmdbSection(shows.length ? '' : 'TMDB 未找到匹配的番剧（可先在设置里填写 API Key）');
+  }).catch((err) => {
+    if (state.searchSeq !== seq) return;
     state.tmdbShows = [];
-    renderTmdbSection('TMDB 不可用：' + ((tmdbRes.reason && tmdbRes.reason.message) || '未知错误'));
-  }
-  if (mikanRes.status === 'fulfilled') {
-    state.results = mikanRes.value;
+    renderTmdbSection('TMDB 不可用：' + ((err && err.message) || '未知错误'));
+  });
+
+  searchMikanLocal(q).then((items) => {
+    if (state.searchSeq !== seq) return;
+    state.results = items;
     renderResults();
-  } else {
+  }).catch((err) => {
+    if (state.searchSeq !== seq) return;
     els.resultsInfo.textContent = '';
     els.results.innerHTML = '<div class="empty">蜜柑搜索失败：<br>' +
-      escapeHtml((mikanRes.reason && mikanRes.reason.message) || '未知错误') +
+      escapeHtml((err && err.message) || '未知错误') +
       '<br><br>可以直接在上方<strong>粘贴磁力链接</strong>播放；或设置自己的代理前缀；或确认 server.mjs 已启动。</div>';
-  }
+  });
 });
 
 els.pasteForm.addEventListener('submit', async (e) => {
@@ -1927,6 +1933,7 @@ async function saveToCacheQuiet(name, blob) {
 
 // ---------- TMDB 番剧搜索与选集 ----------
 async function searchMikanLocal(q) {
+  let serverErr = null;
   if (!state.localProxyAlive) await checkLocalProxy();
   if (state.localProxyAlive) {
     let r;
@@ -1935,7 +1942,7 @@ async function searchMikanLocal(q) {
       r = await fetch(localProxyBase() + '/api/search?q=' + encodeURIComponent(q) +
         (mb ? '&base=' + encodeURIComponent(mb) : ''));
     } catch (e) {
-      // 服务器完全连不上时才回退到公共代理；否则以服务器返回的错误为准
+      serverErr = '服务器搜索代理不可用：' + ((e && e.message) || '网络错误');
     }
     if (r) {
       if (r.ok) {
@@ -1945,15 +1952,25 @@ async function searchMikanLocal(q) {
         const j = await r.json().catch(() => null);
         if (j && j.error) {
           const detail = Array.isArray(j.details) && j.details.length ? '（' + j.details.join('；') + '）' : '';
-          throw new Error(j.error + detail);
+          serverErr = j.error + detail;
+        } else {
+          serverErr = '服务器搜索失败（HTTP ' + r.status + '）';
         }
-        throw new Error('服务器搜索失败（HTTP ' + r.status + '）');
       }
     }
   }
+  // 服务器失败时也尝试浏览器公共代理兜底
   const site = mikanBase() || 'https://mikanime.tv';
-  const html = await fetchViaProxy(site + '/Home/Search?searchstr=' + encodeURIComponent(q), 10000);
-  return parseMikan(html);
+  try {
+    const html = await fetchViaProxy(site + '/Home/Search?searchstr=' + encodeURIComponent(q), 8000);
+    return parseMikan(html);
+  } catch (proxyErr) {
+    if (serverErr) {
+      const err = new Error(serverErr + '；公共代理也失败：' + ((proxyErr && proxyErr.message) || '未知错误'));
+      throw err;
+    }
+    throw proxyErr;
+  }
 }
 
 function tmdbImg(path, size) {
@@ -2715,7 +2732,15 @@ async function startFile(file) {
     state.mode = 'direct';
     let ok = false;
     if (state.sw) ok = await startSwPlayback(file);
-    if (!ok) await startChunkedPlayback(file);
+    if (!ok) {
+      // Service Worker 不可用时（如局域网 HTTP），大文件改用 MSE 流式封装，避免内存限制
+      state.mode = 'mse';
+      ok = await startMsePlayback(file);
+      if (!ok) {
+        state.mode = 'direct';
+        await startChunkedPlayback(file);
+      }
+    }
   } else if (MSE_EXTS.includes(ext)) {
     state.mode = 'mse';
     const ok = await startMsePlayback(file);
@@ -2971,8 +2996,8 @@ async function startMsePlayback(file) {
   els.transcodePanel.classList.remove('hidden');
   els.transcodeFill.style.width = '0%';
   els.transcodeTime.textContent = '';
-  els.transcodeStatus.textContent = '正在解析 MKV 轨道…';
-  setLoading('正在解析 MKV 视频轨道…');
+  els.transcodeStatus.textContent = '正在解析视频轨道…';
+  setLoading('正在解析视频轨道…');
   const player = new MikanMsePlayer();
   state.msePlayer = player;
   try {
@@ -3363,7 +3388,7 @@ function monitorRow(k, v) {
   return '<div class="mr"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
 }
 function playbackKindText() {
-  if (state.playbackKind === 'mse') return '流式无损封装（MKV→MP4，不重编码）';
+  if (state.playbackKind === 'mse') return '流式无损封装（不重编码）';
   if (state.playbackKind === 'remux') return '无损封装播放（未转码，画质无损失）';
   if (state.playbackKind === 'transcode') return '转码播放（H.264）';
   if (state.swPlayback) return '原生直放（Service Worker 渐进播放）';

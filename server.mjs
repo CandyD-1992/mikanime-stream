@@ -230,7 +230,7 @@ async function tmdbProxy(req, res, apiPath) {
       : base + apiPath + sep + params
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 12000)
+      const timer = setTimeout(() => ctrl.abort(), 20000)
       const r = await fetch(target, {
         signal: ctrl.signal,
         headers: {
