@@ -8,7 +8,7 @@ $out = Join-Path $root 'mikanime-stream-release.zip'
 
 if (Test-Path $out) { Remove-Item -LiteralPath $out -Force }
 
-tar -a -c -f $out -C $parent --exclude=node_modules --exclude=bin --exclude=.esb-test --exclude=.debug --exclude=scripts/testdata --exclude=p2p/mse-test.html --exclude=vendor/node_modules --exclude=vendor/node --exclude=vendor/node-arm64.tar.gz mikanime-stream
+tar -a -c -f $out -C $parent --exclude=.git --exclude=node_modules --exclude=bin --exclude=.esb-test --exclude=.debug --exclude=scripts/testdata --exclude=p2p/mse-test.html --exclude=vendor/node_modules --exclude=vendor/node --exclude=vendor/node-arm64.tar.gz mikanime-stream
 
 if ($LASTEXITCODE -eq 0) {
   $size = [math]::Round((Get-Item $out).Length / 1MB, 1)

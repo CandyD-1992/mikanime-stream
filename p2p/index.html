@@ -477,7 +477,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
         <div class="settings-section">
           <h4>TMDB（番剧搜索）</h4>
           <div class="settings-row" style="margin-bottom:8px">
-            <input id="tmdb-key-input" type="text" placeholder="选填：TMDB v3 API Key（免费申请）">
+            <input id="tmdb-key-input" type="password" autocomplete="off" placeholder="选填：TMDB v3 API Key（免费申请）">
           </div>
           <div class="settings-row" style="margin-bottom:8px">
             <input id="tmdb-base-input" type="text" placeholder="选填：TMDB API 地址（默认 https://api.themoviedb.org/3）">
@@ -3382,7 +3382,10 @@ function updateMonitor() {
   let duration = '—';
   if (v && f && v.duration && isFinite(v.duration) && v.duration > 0) {
     duration = fmtDuration(v.duration);
-    bitrate = fmtSize((f.length / v.duration) * 8) + '/s（按文件大小/时长估算）';
+  }
+  if (state.msePlayer && typeof state.msePlayer.getPlaybackBitrate === 'function') {
+    const bps = state.msePlayer.getPlaybackBitrate();
+    if (bps > 0) bitrate = fmtSize(bps / 8) + '/s（实时）';
   }
   const cacheLoc = state.storeKind === 'opfs'
     ? 'OPFS 持久缓存'
@@ -3396,7 +3399,7 @@ function updateMonitor() {
     monitorRow('已连接数', state.wiresCount + ' 条'),
     monitorRow('文件', f ? (f.name ? (f.name.length > 42 ? f.name.slice(0, 42) + '…' : f.name) : '—') : '—'),
     monitorRow('大小/时长', f ? fmtSize(f.length) + ' · ' + duration : '—'),
-    monitorRow('平均码率', bitrate),
+    monitorRow('实时码率', bitrate),
     monitorRow('播放方式', playbackKindText()),
     monitorRow('下载', t ? fmtSize(t.downloadSpeed) + '/s · ' + Math.round((t.progress || 0) * 100) + '% · ' + t.numPeers + ' 连接' : '—'),
     monitorRow('缓存位置', cacheLoc),

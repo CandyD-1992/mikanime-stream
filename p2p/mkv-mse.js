@@ -45,6 +45,9 @@
       this._subtitleTrack = null;
       this._discardAudio = false;
       this._droppedAudio = null;
+      this._keepBehindSec = 90;   // 播放进度往前保留多少秒的缓冲
+      this._evictTimer = null;
+      this._bitrateWindow = [];   // [时间戳, 该片段码率 bps]，用于监控面板显示实时码率
     }
 
     static loaded() {
@@ -154,6 +157,7 @@
       // 3) 建立 MediaSource + SourceBuffer
       this._status('正在建立播放通道…');
       await this._openMediaSource(this._mime);
+      this._startEvictTimer();
 
       // 3.5) 并行提取 MKV 内嵌字幕（ASS/SRT/WebVTT -> TextTrack，纯浏览器端）
       this._startSubtitleExtractor();
@@ -329,9 +333,67 @@
       this._append(parts.length === 1 ? parts[0] : concatBytes(parts));
     }
 
+    getPlaybackBitrate() {
+      if (!this._bitrateWindow.length) return 0;
+      const cutoff = Date.now() - 10000;
+      const recent = this._bitrateWindow.filter(([t]) => t >= cutoff);
+      if (!recent.length) return 0;
+      return recent.reduce((s, [, b]) => s + b, 0) / recent.length;
+    }
+
+    // 定期清理播放进度之前的旧缓冲，避免 SourceBuffer 占满后 appendBuffer 失败
+    _evictOldData() {
+      return new Promise((resolve) => {
+        const sb = this._sourceBuffer;
+        const v = this._video;
+        if (!sb || !v || this._stopped) return resolve();
+        const t = v.currentTime;
+        if (!t || !isFinite(t)) return resolve();
+        if (sb.updating) {
+          sb.addEventListener('updateend', () => this._evictOldData().then(resolve), { once: true });
+          return;
+        }
+        let removed = false;
+        try {
+          const ranges = sb.buffered;
+          const keepFrom = Math.max(0, t - this._keepBehindSec);
+          for (let i = 0; i < ranges.length; i++) {
+            const start = ranges.start(i);
+            const end = ranges.end(i);
+            if (end <= keepFrom + 0.5) {
+              sb.remove(start, end);
+              removed = true;
+              break;
+            }
+          }
+        } catch (e) {
+          return resolve();
+        }
+        if (!removed) return resolve();
+        sb.addEventListener('updateend', () => resolve(), { once: true });
+      });
+    }
+
+    _startEvictTimer() {
+      this._stopEvictTimer();
+      this._evictTimer = setInterval(() => {
+        if (this._stopped) return;
+        this._appendChain = this._appendChain.then(() => this._evictOldData()).catch(() => {});
+      }, 2000);
+    }
+
+    _stopEvictTimer() {
+      if (this._evictTimer) {
+        clearInterval(this._evictTimer);
+        this._evictTimer = null;
+      }
+    }
+
     // 串行 append，避免 SourceBuffer 同时写入；返回的 Promise 在 updateend 后 resolve
     _append(bytes) {
-      const run = this._appendChain.then(() => new Promise((resolve) => {
+      const run = this._appendChain
+        .then(() => this._evictOldData())
+        .then(() => new Promise((resolve) => {
         const sb = this._sourceBuffer;
         if (!sb || this._stopped || this._finished) {
           resolve();
@@ -340,7 +402,18 @@
         const done = () => {
           sb.removeEventListener('updateend', done);
           sb.removeEventListener('error', done);
+          const beforeEnd = this._bufferedEnd;
           this._updateBufferedEnd();
+          const afterEnd = this._bufferedEnd;
+          if (afterEnd > beforeEnd && bytes && bytes.length) {
+            const sec = afterEnd - beforeEnd;
+            if (sec > 0.01) {
+              const now = Date.now();
+              this._bitrateWindow.push([now, (bytes.length * 8) / sec]);
+              const cutoff = now - 10000;
+              this._bitrateWindow = this._bitrateWindow.filter(([t]) => t >= cutoff);
+            }
+          }
           resolve();
         };
         sb.addEventListener('updateend', done, { once: true });
@@ -382,6 +455,7 @@
 
     async stop() {
       this._stopped = true;
+      this._stopEvictTimer();
       for (const s of this._streams) {
         try { s.destroy(); } catch (e) { /* 忽略 */ }
       }
