@@ -96,6 +96,10 @@ pnpm build:mediabunny
 > `(intermediate value).write is not a function`）：在 `_put` 中把 `if (!file.stream) {` 改为
 > `if (!file.stream || typeof file.stream.then !== 'function') {`。重新 `pnpm install` 后如被覆盖，
 > 请重新打上该补丁再执行上面的打包命令。
+## 已知问题
+
+- 非热门种子下载速度缓慢
+- 搜索不够智能，搜索结果会出现各种意外
 
 ## 注意事项
 
