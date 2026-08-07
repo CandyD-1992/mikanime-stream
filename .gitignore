@@ -1,0 +1,12 @@
+node_modules/
+.debug/
+scripts/testdata/
+vendor/node/
+vendor/node_modules/
+mikanime-stream-release.zip
+*.log
+data/
+bin/
+.esb-test/
+server.log
+start.bat

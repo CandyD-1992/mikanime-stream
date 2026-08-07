@@ -1,0 +1,10 @@
+/node_modules
+vendor/node_modules
+vendor/node
+data
+bin
+server.log
+start.bat
+.esb-test
+.git
+.gitignore

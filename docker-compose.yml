@@ -1,0 +1,23 @@
+services:
+  mikanime-stream:
+    build: .
+    image: mikanime-stream:latest
+    container_name: mikanime-stream
+    ports:
+      - "12348:3000"
+    restart: unless-stopped
+    # NAS 容器经常解析不了外网域名（报 getaddrinfo EAI_AGAIN），
+    # 这里改用公共 DNS；如果你所在网络屏蔽公共 DNS，删掉这段即可。
+    dns:
+      - 223.5.5.5
+      - 119.29.29.29
+      - 114.114.114.114
+    # 可选：TMDB API Key（用于番剧搜索/选集；不填也可以在页面“设置”里填写）
+    # TMDB_API_BASE 可改成可用的镜像/代理地址（也可在页面“设置”里填写；
+    # 若为代理模板请用 {url} 占位，如 https://corsproxy.io/?url={url}）
+    # TMDB_API_FALLBACKS 是备用地址列表（逗号分隔），主地址失败时自动换下一个
+    # MIKAN_BASE 可指定蜜柑站点（默认自动尝试 mikanime.tv / mikanani.me）
+    # environment:
+    #   - TMDB_API_KEY=你的key
+    #   - TMDB_API_BASE=https://api.themoviedb.org/3
+    #   - MIKAN_BASE=https://mikanime.tv

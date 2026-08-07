@@ -1,0 +1,3800 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mikan P2P 边下边播（纯网页版）</title>
+<style>
+:root {
+  --bg: #0e1014; --bg-soft: #161a21; --bg-card: #1b2029; --line: #2a3140;
+  --text: #e7eaf0; --muted: #8b93a3; --accent: #ff6b9d; --accent-2: #6ee7ff; --ok: #59d98a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgba(110,231,255,.08), transparent 60%),
+    radial-gradient(900px 500px at 10% -10%, rgba(255,107,157,.10), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  min-height: 100vh;
+}
+.top {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 18px 24px; border-bottom: 1px solid var(--line);
+  background: rgba(14,16,20,.75); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 20;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-mark { color: var(--accent); font-size: 22px; }
+.brand h1 { font-size: 21px; }
+.brand em { font-style: normal; color: var(--accent-2); font-weight: 400; font-size: 14px; }
+.search { flex: 1; display: flex; gap: 8px; min-width: 240px; }
+.search input, .paste input {
+  flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--text); font-size: 14px; outline: none; min-width: 120px;
+}
+.search input:focus, .paste input:focus { border-color: var(--accent); }
+button {
+  padding: 10px 18px; border-radius: 10px; border: none; cursor: pointer; font-size: 13px;
+  font-weight: 600; background: linear-gradient(135deg, var(--accent), #e84a7f); color: #fff; white-space: nowrap;
+}
+        button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+        button.ghost:hover { color: var(--text); border-color: var(--accent); }
+        button.ghost.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        .diag-text { white-space: pre-wrap; word-break: break-all; }
+.paste { display: flex; gap: 8px; flex: 1; min-width: 280px; }
+main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
+.notice {
+  background: rgba(110,231,255,.06); border: 1px solid rgba(110,231,255,.25);
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; color: var(--muted); font-size: 13px; line-height: 1.7;
+}
+.notice b { color: var(--accent-2); }
+.hidden { display: none !important; }
+.muted { color: var(--muted); font-size: 13px; padding: 8px 2px 12px; }
+
+.player-panel {
+  position: sticky;
+  top: 78px; /* 紧贴吸顶的搜索栏下方 */
+  z-index: 15;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.player-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.player-head h2 { font-size: 15px; font-weight: 600; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.player-main { min-width: 0; }
+.player-panel.scroll-mode { position: static; }
+.app-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr) 340px; gap: 16px; align-items: start; padding: 16px 16px 0; }
+.app-main { min-width: 0; }
+.app-left { position: sticky; top: 78px; min-width: 0; }
+.app-right { min-width: 0; }
+.app-left { display: flex; flex-direction: column; gap: 12px; }
+.app-right { display: flex; flex-direction: column; gap: 14px; }
+.app-left .ps-poster {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 10px;
+}
+.app-left .ps-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.app-left .ps-title { font-size: 13.5px; font-weight: 600; line-height: 1.45; margin-bottom: 10px; word-break: break-all; }
+.app-left .ps-info {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  margin-bottom: 7px;
+  word-break: break-all;
+}
+.app-left .ps-info .k { color: var(--muted); flex-shrink: 0; min-width: 52px; }
+.app-left .ps-magnet { flex-wrap: wrap; }
+.ps-magnet-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--accent-2);
+  text-decoration: none; font-size: 12px; cursor: pointer;
+}
+.ps-magnet-link:hover { border-color: var(--accent-2); color: var(--text); }
+.ps-magnet-link.disabled { opacity: .45; pointer-events: none; color: var(--muted); }
+.app-right .tmdb-detail,
+.app-right .group-filter {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+.app-layout.no-left { grid-template-columns: minmax(0, 1fr) 340px; }
+.app-layout.no-right { grid-template-columns: 250px minmax(0, 1fr); }
+.app-layout.no-left.no-right { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1200px) {
+  .app-layout { grid-template-columns: 1fr; }
+  .app-left, .app-right { position: static; }
+  .app-left { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; }
+  .app-left .ps-poster { grid-row: span 5; margin-bottom: 0; }
+}
+.monitor-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-width: 82%;
+  background: rgba(8, 10, 14, 0.72);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 5;
+}
+.monitor-overlay .k { color: var(--muted); display: inline-block; min-width: 56px; }
+.monitor-overlay .mr { display: block; white-space: normal; word-break: break-all; }
+.monitor-progress { height: 5px; border-radius: 999px; background: var(--bg-soft); overflow: hidden; margin: 6px 0 2px; }
+.monitor-progress > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
+.player-box { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; }
+.player-box video { width: 100%; height: 100%; display: block; }
+.player-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(8,10,14,.84); pointer-events: none; }
+.player-loading button { pointer-events: auto; }
+.spinner { width: 38px; height: 38px; border-radius: 50%; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.player-loading p { color: var(--muted); font-size: 13px; max-width: 80%; text-align: center; }
+.file-picker { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.file-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-soft); color: var(--muted); font-size: 12px; cursor: pointer; }
+.file-chip:hover { border-color: var(--accent-2); color: var(--text); }
+.file-chip.active { border-color: var(--accent); background: rgba(255,107,157,.14); color: var(--text); }
+.status-bar { margin-top: 12px; }
+.progress { height: 6px; border-radius: 999px; background: var(--bg-soft); overflow: hidden; }
+.progress > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s; }
+.status-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.player-error, .note { margin-top: 10px; padding: 9px 14px; border-radius: 10px; font-size: 13px; }
+.player-error { background: rgba(255,80,90,.12); border: 1px solid rgba(255,80,90,.4); color: #ff9aa2; }
+.note { background: rgba(89,217,138,.08); border: 1px solid rgba(89,217,138,.3); color: #9be8ba; }
+.actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+.transcode { margin-top: 12px; }
+.transcode-bar { height: 6px; border-radius: 999px; background: var(--bg-soft); overflow: hidden; }
+.transcode-bar > div { height: 100%; width: 0%; background: linear-gradient(90deg, #ffb86b, #ff6b9d); transition: width .3s; }
+.transcode-meta { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 12px; }
+
+.result-row { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 9px; }
+.result-row:hover { border-color: var(--accent); }
+.result-row.playing { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.25); }
+.result-title { font-size: 13.5px; line-height: 1.5; margin-bottom: 5px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.result-meta { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.result-meta .size { color: var(--accent-2); }
+.result-actions { display: flex; gap: 8px; }
+.icon-btn { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 9px; padding: 6px 10px; font-size: 12px; }
+.icon-btn:hover { color: var(--text); border-color: var(--muted); }
+.icon-btn:disabled { opacity: .55; cursor: not-allowed; color: var(--accent-2); border-color: var(--accent); }
+.empty { text-align: center; color: var(--muted); padding: 50px 0; font-size: 14px; }
+
+/* ---------- 设置悬浮面板 ---------- */
+.settings-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(5, 7, 10, .55);
+  backdrop-filter: blur(2px);
+  display: flex; justify-content: flex-end;
+}
+.settings-panel {
+  width: min(430px, 94vw); height: 100%;
+  background: var(--bg-card);
+  border-left: 1px solid var(--line);
+  box-shadow: -16px 0 48px rgba(0, 0, 0, .45);
+  display: flex; flex-direction: column;
+  animation: settings-in .18s ease-out;
+}
+@keyframes settings-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.settings-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px; border-bottom: 1px solid var(--line);
+}
+.settings-head h3 { font-size: 16px; }
+.settings-head .icon-btn { font-size: 14px; padding: 5px 10px; }
+.settings-body { flex: 1; overflow-y: auto; padding: 14px 18px 40px; }
+.settings-section { margin-bottom: 18px; }
+.settings-section h4 {
+  font-size: 12.5px; color: var(--accent-2); font-weight: 600;
+  margin-bottom: 8px; letter-spacing: .5px;
+}
+.settings-section .notice { margin-bottom: 0; }
+.settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-row .muted { padding: 2px 0; }
+.settings-panel input[type="text"] {
+  flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
+}
+.settings-panel input[type="text"]:focus { border-color: var(--accent); }
+
+/* ---------- TMDB 番剧卡片 ---------- */
+.tmdb-section { margin-bottom: 18px; }
+.tmdb-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.tmdb-toolbar h3 { font-size: 15px; color: var(--text); }
+.tmdb-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px;
+}
+.tmdb-card {
+  background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px;
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+  transition: border-color .15s, transform .15s;
+}
+.tmdb-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.tmdb-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; background: var(--bg-soft); }
+.tmdb-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 5px; }
+.tmdb-name { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.tmdb-meta { color: var(--muted); font-size: 12px; }
+.tmdb-overview {
+  color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tmdb-detail { margin-top: 14px; }
+.tmdb-detail-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.tmdb-detail-poster { width: 110px; border-radius: 10px; aspect-ratio: 2/3; object-fit: cover; background: var(--bg-soft); }
+.tmdb-detail-info h3 { font-size: 16px; margin-bottom: 4px; }
+.tmdb-detail-info .tmdb-overview { -webkit-line-clamp: 5; }
+.season-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.season-toolbar { margin-bottom: 10px; }
+.season-chip {
+  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.season-chip:hover { border-color: var(--accent-2); color: var(--text); }
+.season-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(255,107,157,.12); }
+.episodes-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.episode-chip {
+  padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--text); font-size: 12px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px; text-align: left; max-width: 220px;
+}
+.episode-chip .ep-no { font-weight: 600; color: var(--accent-2); }
+.episode-chip .ep-name { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.episode-chip:hover { border-color: var(--accent); }
+.episode-chip:disabled { opacity: .45; cursor: wait; }
+
+/* ---------- 字幕组分组的搜索结果 ---------- */
+.group-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--line);
+}
+.group-head .group-name { color: var(--accent-2); font-size: 14px; font-weight: 700; }
+.group-head .group-count { color: var(--muted); font-size: 12px; }
+.group-filter {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0;
+  padding: 10px 12px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px;
+}
+.group-filter .gf-label { color: var(--muted); font-size: 12px; }
+.group-chip {
+  padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.group-chip:hover { color: var(--text); border-color: var(--accent-2); }
+.group-chip.active { color: var(--accent); border-color: var(--accent); background: rgba(255,107,157,.12); }
+
+.results-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.probe-toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.proxy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.proxy-row input {
+  flex: 1; min-width: 260px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
+}
+.proxy-row input:focus { border-color: var(--accent); }
+.probe-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line); color: var(--muted); }
+.probe-badge.checking { color: var(--accent-2); border-color: rgba(110,231,255,.4); }
+.probe-badge.ok { color: var(--ok); border-color: rgba(89,217,138,.5); }
+.probe-badge.fail { color: var(--muted); border-color: var(--line); }
+.cache-section { margin-top: 26px; }
+.cache-section h3 { font-size: 15px; margin-bottom: 10px; color: var(--muted); }
+.cache-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+.cache-row .nm { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+.queue-row .queue-main { flex: 1; min-width: 0; }
+.queue-row .queue-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row .queue-meta { color: var(--muted); font-size: 11.5px; margin: 3px 0 6px; word-break: break-all; }
+.queue-row .progress { height: 5px; }
+@media (max-width: 760px) { .result-row { grid-template-columns: 1fr; } .top { padding: 14px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="brand-mark">◆</span><h1>Mikan <em>P2P 边下边播 · 纯网页版</em></h1></div>
+  <form id="search-form" class="search" autocomplete="off">
+    <input id="search-input" type="search" placeholder="搜索番剧（如：无职转生、海贼王）">
+    <button type="submit">搜索</button>
+  </form>
+  <form id="paste-form" class="paste" autocomplete="off">
+    <input id="paste-input" type="text" placeholder="或直接粘贴磁力链接，回车播放">
+    <button type="submit" class="ghost">播放</button>
+  </form>
+  <button id="btn-queue" class="ghost" type="button" title="查看下载队列">队列</button>
+  <button id="btn-settings" class="ghost" type="button" title="打开设置">⚙ 设置</button>
+</header>
+
+<div id="app-layout" class="app-layout">
+  <aside id="app-left" class="app-left">
+    <div class="ps-poster hidden"><img id="ps-poster" alt="" referrerpolicy="no-referrer"></div>
+    <div class="ps-title" id="ps-title">—</div>
+    <div class="ps-info"><span class="k">字幕组</span><span id="ps-group">—</span></div>
+    <div class="ps-info"><span class="k">发布日期</span><span id="ps-date">—</span></div>
+    <div class="ps-info"><span class="k">文件名</span><span id="ps-file">—</span></div>
+    <div class="ps-info ps-magnet"><span class="k">磁力链接</span>
+      <a id="ps-magnet" class="ps-magnet-link" href="#" target="_blank" rel="noopener">—</a>
+    </div>
+    <div class="ps-info ps-magnet"><span class="k">蜜柑详情</span>
+      <a id="ps-mikan" class="ps-magnet-link" href="#" target="_blank" rel="noopener">—</a>
+    </div>
+  </aside>
+  <main class="app-main">
+  <section id="player-panel" class="player-panel hidden">
+    <div class="player-main">
+      <div class="player-head">
+        <h2 id="player-title"></h2>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button id="btn-player-fix" class="ghost" type="button" title="切换播放器固定在屏幕上或随页面滚动">固定播放器</button>
+          <button id="btn-monitor" class="ghost" type="button">监控信息</button>
+          <button id="btn-stop" class="ghost" type="button">停止</button>
+        </div>
+      </div>
+      <div class="player-box">
+        <video id="video" controls playsinline></video>
+        <div id="player-loading" class="player-loading hidden">
+          <div class="spinner"></div>
+          <p id="loading-text">正在连接做种者…</p>
+          <button id="btn-click-play" class="hidden" type="button">▶ 点击开始播放</button>
+        </div>
+        <div id="monitor-overlay" class="monitor-overlay hidden"></div>
+      </div>
+      <div id="file-picker" class="file-picker hidden"></div>
+      <div id="transcode-panel" class="transcode hidden">
+        <div class="transcode-bar"><div id="transcode-fill"></div></div>
+        <div class="transcode-meta"><span id="transcode-status">准备转码…</span><span id="transcode-time"></span></div>
+      </div>
+      <div class="status-bar">
+        <div class="status-meta">
+          <span id="stat-speed">0 KB/s</span>
+          <span id="stat-progress">0%</span>
+          <span id="stat-peers">0 个连接</span>
+          <span id="stat-size"></span>
+        </div>
+      </div>
+      <div id="player-error" class="player-error hidden"></div>
+      <div id="player-note" class="note hidden"></div>
+      <div id="actions" class="actions hidden">
+        <button id="btn-save" class="ghost" type="button">保存到本地磁盘</button>
+        <button id="btn-cache" class="ghost" type="button">存入网页缓存</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="results-section">
+    <section id="tmdb-section" class="tmdb-section hidden">
+      <div class="tmdb-toolbar">
+        <h3>番剧（TMDB）</h3>
+        <span id="tmdb-info" class="muted"></span>
+      </div>
+      <div id="tmdb-list" class="tmdb-list"></div>
+    </section>
+    <div id="results-info" class="muted"></div>
+    <div id="results" class="results"></div>
+  </section>
+
+  <section id="cache-section" class="cache-section hidden">
+    <h3>已缓存在网页里的文件</h3>
+    <div id="cache-list"></div>
+  </section>
+  </main>
+  <aside id="app-right" class="app-right">
+    <div id="tmdb-detail" class="tmdb-detail hidden">
+      <div class="tmdb-detail-head">
+        <img id="tmdb-detail-poster" class="tmdb-detail-poster" alt="">
+        <div class="tmdb-detail-info">
+          <h3 id="tmdb-detail-name"></h3>
+          <div id="tmdb-detail-meta" class="tmdb-meta"></div>
+          <div id="tmdb-detail-overview" class="tmdb-overview"></div>
+        </div>
+          </div>
+          <div id="tmdb-season-tabs" class="season-tabs"></div>
+          <div class="season-toolbar">
+            <button id="btn-search-season" class="ghost" type="button" title="用当前番剧和季去蜜柑搜索全部资源">搜索本季资源</button>
+          </div>
+          <div id="tmdb-episodes" class="episodes-grid"></div>
+    </div>
+    <div id="group-filter" class="group-filter hidden"></div>
+  </aside>
+</div>
+
+  <div id="settings-overlay" class="settings-overlay hidden">
+    <div class="settings-panel">
+      <div class="settings-head">
+        <h3>⚙ 设置</h3>
+        <button id="btn-settings-close" class="icon-btn" type="button" title="关闭">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <h4>说明</h4>
+          <div class="notice">
+            <b>说明：</b>搜索由 <b>server.mjs</b>（NAS / 本机）代理蜜柑计划；下载和播放全部在浏览器里进行，服务端不做转码、不保存数据。
+            浏览器默认通过 <b>“服务器中转（TCP/UDP）”</b> 连接做种者：由 NAS 用真实网络代为建立
+            TCP/UDP 连接去连普通 BitTorrent 做种者，数据只经 NAS 转发、不落盘。
+            WebRTC 默认不开启，可在下方按钮手动切换。搜索结果会自动异步探测，
+            <b>✓ 有 WebRTC 节点</b>表示可直接连，<b>✗ 无 WebRTC 节点</b>表示需要中转。
+            能连上时：mp4/webm 直接边下载边播放；mkv 会在浏览器里<b>边下载边无损封装</b>成 fMP4 边播放
+            （不重新编码、画质无损失、大文件也能播），只有编码不受浏览器支持时才转码。
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>WebRTC 可用性探测</h4>
+          <div class="settings-row">
+            <label class="probe-toggle"><input type="checkbox" id="probe-toggle" checked> 自动探测（前 15 条）</label>
+            <button id="probe-recheck" class="icon-btn" type="button">重新探测</button>
+            <span id="probe-info" class="muted"></span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>代理搜索</h4>
+          <div class="proxy-row">
+            <span class="muted">代理前缀（可选，留空用内置代理）：</span>
+            <input id="proxy-input" type="text" placeholder="https://corsproxy.io/?url=  或含 {url} 的模板">
+          </div>
+          <div class="proxy-row">
+            <span class="muted">蜜柑站点地址（可选，NAS 解析失败时可换）：</span>
+            <input id="mikan-base-input" type="text" placeholder="https://mikanime.tv 或 https://mikanani.me">
+          </div>
+          <span id="proxy-status" class="muted"></span>
+        </div>
+        <div class="settings-section">
+          <h4>服务器中转（TCP/UDP）</h4>
+          <div class="settings-row">
+            <button id="btn-wasmnet" class="ghost" type="button" title="WebRTC 连不上时，改由服务器代为建立 TCP/UDP 连接（数据仅转发、不保存）">服务器中转（TCP/UDP）</button>
+            <span id="wasmnet-status" class="muted"></span>
+          </div>
+          <div class="proxy-row">
+            <span class="muted">中继地址覆盖（可选，反向代理不转发 WebSocket 时用）：</span>
+            <input id="relay-url-input" type="text" placeholder="ws://NAS IP:3000/wasmnet 或 wss://...">
+            <button id="btn-relay-test" class="icon-btn" type="button">测试中继</button>
+          </div>
+          <span id="relay-test-status" class="muted"></span>
+        </div>
+        <div class="settings-section">
+          <h4>下载队列</h4>
+          <div class="settings-row">
+            <span class="muted">并行任务数（1-5）：</span>
+            <input id="queue-concurrency-input" type="number" min="1" max="5" step="1" value="1" style="max-width:90px">
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>诊断 tracker</h4>
+          <div class="settings-row">
+            <button id="btn-tracker-diag" class="ghost" type="button" title="逐个测试当前种子 HTTP tracker 经服务器转发是否可达、是否有做种者">诊断 tracker</button>
+            <span id="tracker-diag" class="muted diag-text"></span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>TMDB（番剧搜索）</h4>
+          <div class="settings-row" style="margin-bottom:8px">
+            <input id="tmdb-key-input" type="text" placeholder="选填：TMDB v3 API Key（免费申请）">
+          </div>
+          <div class="settings-row" style="margin-bottom:8px">
+            <input id="tmdb-base-input" type="text" placeholder="选填：TMDB API 地址（默认 https://api.themoviedb.org/3）">
+          </div>
+          <span id="tmdb-key-status" class="muted"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="queue-overlay" class="settings-overlay hidden">
+    <div class="settings-panel">
+      <div class="settings-head">
+        <h3>下载队列</h3>
+        <button id="btn-queue-close" class="icon-btn" type="button" title="关闭">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-row" style="margin-bottom:10px">
+            <span class="muted">加入队列的资源会依次下载，完成后自动触发浏览器保存到本地。</span>
+          </div>
+          <div id="queue-list"></div>
+          <div class="settings-row" style="margin-top:12px">
+            <button id="btn-queue-clear" class="ghost" type="button">清空已完成 / 已暂停 / 失败</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script src="crypto-subtle-polyfill.js"></script>
+<script src="vendor/mediabunny.iife.min.js"></script>
+<script src="mkv-subs.js"></script>
+<script src="mkv-mse.js"></script>
+<script>
+'use strict';
+
+// ---------- 常量 ----------
+// webtorrent >= 2.3.0（2.8.5 打包为 IIFE 的浏览器构建，随页面一起提供）
+const WT_CDNS = ['vendor/webtorrent.iife.min.js'];
+// wasmnet 版：支持通过服务器中继建立 TCP/UDP 连接（连普通 BitTorrent 做种者）
+const WT_WASMNET_CDNS = ['vendor/webtorrent-wasmnet.iife.min.js'];
+const FF_CORE_JS_CDNS = [
+  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js',
+  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js',
+];
+const FF_CORE_WASM_CDNS = [
+  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm',
+  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm',
+];
+const WS_TRACKERS = [
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.btorrent.xyz',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.files.fm:7073/announce',
+];
+// 中转（TCP/UDP）模式下的公共 tracker 兜底：磁力链自带 tracker 太少时补充，
+// 帮助发现更多做种者（只在 wasmnet 模式下使用，WebRTC 模式仍只用 WebSocket tracker）
+const FALLBACK_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.demonii.com:1337/announce',
+  'udp://tracker.openbittorrent.com:6969/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.tiny-vps.com:6969/announce',
+  'udp://tracker.moeking.me:6969/announce',
+  'https://tracker.tamersunion.org:443/announce',
+  'https://tracker.gbitt.info:443/announce',
+  'http://tracker.gbitt.info:80/announce',
+  'https://tr.bangumi.moe:9696/announce',
+  'http://open.acgnx.se/announce',
+  'udp://tracker.nyaa.tk:6969/announce',
+];
+const VIDEO_EXTS = ['.mp4', '.webm', '.m4v', '.mov', '.mkv', '.avi', '.ts', '.flv', '.wmv'];
+const DIRECT_EXTS = ['.mp4', '.webm', '.m4v', '.mov'];
+const MSE_EXTS = ['.mkv'];                 // 浏览器流式无损封装（MKV -> fMP4，不重编码）
+const TRANSCODE_LIMIT_MB = 400;      // 超过此大小不尝试网页转码
+const CHUNKED_PLAY_LIMIT_MB = 700;   // 超过此大小不尝试分片边下边播（内存限制）
+const PROBE_LIMIT = 15;              // 搜索后默认探测多少条
+const PROBE_CONCURRENCY = 3;         // 同时探测几条
+const PROBE_TIMEOUT = 8000;          // 每条探测超时（毫秒）
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id);
+const els = {
+  searchForm: $('search-form'), searchInput: $('search-input'),
+  pasteForm: $('paste-form'), pasteInput: $('paste-input'),
+  resultsInfo: $('results-info'), results: $('results'),
+  playerPanel: $('player-panel'), playerTitle: $('player-title'),
+  video: $('video'), playerLoading: $('player-loading'), loadingText: $('loading-text'),
+  filePicker: $('file-picker'),
+  transcodePanel: $('transcode-panel'), transcodeFill: $('transcode-fill'),
+  transcodeStatus: $('transcode-status'), transcodeTime: $('transcode-time'),
+  statSpeed: $('stat-speed'), statProgress: $('stat-progress'),
+  statPeers: $('stat-peers'), statSize: $('stat-size'),
+  playerError: $('player-error'), playerNote: $('player-note'),
+  actions: $('actions'), btnSave: $('btn-save'), btnCache: $('btn-cache'), btnStop: $('btn-stop'),
+  btnMonitor: $('btn-monitor'), monitorOverlay: $('monitor-overlay'),
+  btnPlayerFix: $('btn-player-fix'),
+  psPoster: $('ps-poster'), psTitle: $('ps-title'), psGroup: $('ps-group'),
+  psDate: $('ps-date'), psFile: $('ps-file'), psMagnet: $('ps-magnet'), psMikan: $('ps-mikan'),
+  appLayout: $('app-layout'), appLeft: $('app-left'), appRight: $('app-right'),
+  btnClickPlay: $('btn-click-play'),
+  cacheSection: $('cache-section'), cacheList: $('cache-list'),
+  probeToggle: $('probe-toggle'), probeRecheck: $('probe-recheck'), probeInfo: $('probe-info'),
+  proxyInput: $('proxy-input'),
+  mikanBaseInput: $('mikan-base-input'),
+  proxyStatus: $('proxy-status'),
+  btnWasmnet: $('btn-wasmnet'),
+  wasmnetStatus: $('wasmnet-status'),
+  relayUrlInput: $('relay-url-input'),
+  btnRelayTest: $('btn-relay-test'),
+  relayTestStatus: $('relay-test-status'),
+  btnTrackerDiag: $('btn-tracker-diag'),
+  trackerDiag: $('tracker-diag'),
+  btnSettings: $('btn-settings'),
+  settingsOverlay: $('settings-overlay'),
+  btnSettingsClose: $('btn-settings-close'),
+  btnQueue: $('btn-queue'),
+  queueOverlay: $('queue-overlay'),
+  btnQueueClose: $('btn-queue-close'),
+  queueList: $('queue-list'),
+  btnQueueClear: $('btn-queue-clear'),
+  queueConcurrencyInput: $('queue-concurrency-input'),
+  tmdbSection: $('tmdb-section'),
+  tmdbInfo: $('tmdb-info'),
+  tmdbList: $('tmdb-list'),
+  tmdbDetail: $('tmdb-detail'),
+  tmdbDetailPoster: $('tmdb-detail-poster'),
+  tmdbDetailName: $('tmdb-detail-name'),
+  tmdbDetailMeta: $('tmdb-detail-meta'),
+  tmdbDetailOverview: $('tmdb-detail-overview'),
+  tmdbSeasonTabs: $('tmdb-season-tabs'),
+  tmdbEpisodes: $('tmdb-episodes'),
+  btnSearchSeason: $('btn-search-season'),
+  tmdbKeyInput: $('tmdb-key-input'),
+  tmdbBaseInput: $('tmdb-base-input'),
+  tmdbKeyStatus: $('tmdb-key-status'),
+  groupFilter: $('group-filter'),
+};
+
+// ---------- 状态 ----------
+const state = {
+  client: null,
+  torrent: null,
+  currentFile: null,
+  mode: null,          // 'direct' | 'transcode'
+  chunks: [],          // 已下载数据块（direct 模式）
+  blobURL: null,
+  ffmpeg: null,
+  pollTimer: null,
+  rebuildTimer: null,
+  savedTime: 0,
+  transcodeBusy: false,
+  results: [],
+  cacheEntries: [],
+  probeMap: new Map(),   // hash -> 'checking' | 'ok' | 'fail'
+  probeEnabled: true,
+  probeRunning: false,
+  localProxyAlive: false,
+  wasmnetRelayAlive: false, // 服务器 wasmnet 中继是否可用
+  wasmnetMode: true,        // 默认用“服务器中转”方式连接做种者（WebRTC 默认不开启）
+  wasmnetFallbackTimer: null,
+  wasmnetRelayConnected: false, // 中继 WebSocket 是否已连上
+  wasmnetError: null,           // 中继连接失败时的错误信息
+  peersSeen: 0,             // 累计发现的做种者数量
+  wiresCount: 0,            // 累计建立的连接数
+  lastWarning: null,        // 最近的 tracker / 网络警告
+  lastMagnet: null,         // 最近一次播放的磁力链
+  playInfo: null,           // 播放侧栏信息 {title,group,date,fileName,image,magnet}
+  playingHash: null,        // 当前正在播放的结果 infoHash（用于结果行“播放中”标记）
+  sw: null,            // ServiceWorkerRegistration（http 环境下渐进播放）
+  swPlayback: false,
+  lastRebuildBytes: 0,
+  storeKind: null,     // 'opfs' | 'memory'
+  playbackKind: null,  // 'direct' | 'remux' | 'transcode'
+  lastMseError: null,  // MSE 流式播放失败时的原因（用于回退提示）
+  rebuilding: false,   // 换源窗口，期间忽略视频错误
+  hasPlayed: false,    // 是否已经开始播放过（用于区分“换源瞬时错误”和“文件不支持”）
+  resumeTime: null,    // 换源时要精确恢复的进度（跨多次重建保持不变）
+  priorityWindow: null, // 当前已标记优先的进度窗口 [start-end]
+  resumeWaitStart: null, // 等待缓冲的开始时间（超时兜底用）
+  tmdbShows: [],        // 最近一次 TMDB 搜索结果
+  tmdbCurrentShow: null, // 当前展开查看的 TMDB 剧集
+  tmdbCurrentSeason: 1,  // 当前选中的季
+  tmdbSeasonCache: new Map(), // tmdb id -> season -> episodes
+  resultGroups: [],     // 选集搜索按字幕组分好的组 [{name, items}]
+  activeGroup: null,    // 当前筛选的字幕组（null = 全部）
+  dhtPeers: new Set(),  // 服务器 DHT 节点发现的做种者（只在中转模式使用）
+  dhtTimer: null,       // DHT 轮询定时器
+  queue: [],            // 下载队列 [{id,magnet,title,hash,status,progress,speed,downloaded,total,error,torrent,file}]
+  queueSaveTimer: null, // 队列状态防抖保存定时器
+  queueClient: null,    // 队列专用的 WebTorrentWasmnet 客户端
+};
+
+function fmtSize(bytes) {
+  if (bytes == null || isNaN(bytes)) return '-';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0; let v = bytes;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+function fmtDuration(sec) {
+  if (!isFinite(sec) || sec <= 0) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return h > 0
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+    : m + ':' + String(s).padStart(2, '0');
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+function extOf(name) { const i = name.lastIndexOf('.'); return i >= 0 ? name.slice(i).toLowerCase() : ''; }
+
+// ---------- 播放侧栏信息 ----------
+function parseShowFromTitle(title) {
+  let s = String(title || '').replace(/^\s*[\[【][^\]】]*[\]】]\s*/, '');
+  s = s.replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+  return s || title || '';
+}
+function setPlayInfo(info) {
+  state.playInfo = Object.assign({ title: '', group: '', date: '', fileName: '', image: '', posterFallback: '', magnet: '', detailUrl: '' }, info || {});
+  renderPlaySidebar();
+}
+function formatDateWithWeekday(s) {
+  if (!s) return '—';
+  let text = String(s).trim();
+  let date = null;
+  const m = /(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(text);
+  if (m) {
+    date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  } else if (/今天/.test(text)) {
+    date = new Date();
+  } else if (/昨天/.test(text)) {
+    date = new Date(Date.now() - 86400000);
+  } else if (/前天/.test(text)) {
+    date = new Date(Date.now() - 2 * 86400000);
+  }
+  if (date && !isNaN(date.getTime())) {
+    const week = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+    const timeMatch = /(\d{1,2}:\d{2})/.exec(text);
+    if (timeMatch) {
+      text = text.replace(timeMatch[1], timeMatch[1] + ' 星期' + week);
+    } else {
+      text += ' 星期' + week;
+    }
+  }
+  return text;
+}
+function renderPlaySidebar() {
+  const p = state.playInfo || {};
+  els.psTitle.textContent = p.title || '—';
+  els.psGroup.textContent = p.group || '—';
+  els.psDate.textContent = formatDateWithWeekday(p.date);
+  els.psFile.textContent = p.fileName || '—';
+  if (p.magnet) {
+    els.psMagnet.href = p.magnet;
+    els.psMagnet.textContent = '打开磁力';
+    els.psMagnet.classList.remove('disabled');
+    els.psMagnet.title = p.magnet;
+  } else {
+    els.psMagnet.removeAttribute('href');
+    els.psMagnet.textContent = '—';
+    els.psMagnet.classList.add('disabled');
+    els.psMagnet.title = '';
+  }
+  if (p.detailUrl) {
+    els.psMikan.href = p.detailUrl;
+    els.psMikan.textContent = '打开详情';
+    els.psMikan.classList.remove('disabled');
+    els.psMikan.title = p.detailUrl;
+  } else {
+    els.psMikan.removeAttribute('href');
+    els.psMikan.textContent = '—';
+    els.psMikan.classList.add('disabled');
+    els.psMikan.title = '';
+  }
+  const primary = p.image || '';
+  const fallback = p.posterFallback || '';
+  if (primary || fallback) {
+    els.psPoster.classList.remove('hidden');
+    els.psPoster.src = primary || fallback;
+    els.psPoster.onerror = () => {
+      if (primary && fallback && els.psPoster.src !== fallback) {
+        els.psPoster.src = fallback;
+      } else {
+        els.psPoster.classList.add('hidden');
+      }
+    };
+  } else {
+    els.psPoster.removeAttribute('src');
+    els.psPoster.onerror = null;
+    els.psPoster.classList.add('hidden');
+  }
+  const hasInfo = !!(p.title || p.group || p.date || p.fileName || p.magnet || p.detailUrl || p.image || p.posterFallback);
+  if (els.appLeft) els.appLeft.style.display = hasInfo ? '' : 'none';
+  updateAppLayout();
+}
+function updateRightEmpty() {
+  const any = !els.tmdbDetail.classList.contains('hidden') || !els.groupFilter.classList.contains('hidden');
+  if (els.appRight) els.appRight.style.display = any ? '' : 'none';
+  updateAppLayout();
+}
+function updateAppLayout() {
+  if (!els.appLayout) return;
+  const leftHidden = !els.appLeft || els.appLeft.style.display === 'none';
+  const rightHidden = !els.appRight || els.appRight.style.display === 'none';
+  els.appLayout.classList.toggle('no-left', leftHidden);
+  els.appLayout.classList.toggle('no-right', rightHidden);
+}
+async function fetchPlayInfoDetail(hash) {
+  const p = state.playInfo || (state.playInfo = {});
+  if (!hash) { renderPlaySidebar(); return; }
+  try {
+    const cfg = await getServerConfig();
+    const url = localProxyBase() + '/api/mikan-detail?token=' +
+      encodeURIComponent((cfg.wasmnet && cfg.wasmnet.token) || '') +
+      '&hash=' + encodeURIComponent(hash);
+    const r = await fetch(url, { cache: 'no-store' });
+    const j = await r.json().catch(() => null);
+    if (r.ok && j && j.ok) {
+      if (!p.title && j.title) p.title = j.title;
+      if (!p.group && j.group) p.group = j.group;
+      if (!p.date && j.date) p.date = j.date;
+      if (j.image) p.image = j.image;
+      if (!p.fileName && j.episodeTitle) p.fileName = j.episodeTitle;
+      if (!p.magnet && j.magnet) p.magnet = j.magnet;
+      if (j.base) p.detailUrl = j.base.replace(/\/+$/, '') + '/Home/Episode/' + hash;
+    }
+  } catch (e) { /* 详情抓不到不阻塞播放 */ }
+  renderPlaySidebar();
+}
+
+async function fillPlayInfoFromTorrent() {
+  const p = state.playInfo || (state.playInfo = {});
+  const t = state.torrent;
+  if (t && t.name && !p.fileName) p.fileName = t.name;
+  const f = state.currentFile;
+  if (f && f.name) p.fileName = f.name;
+  const m = /btih:([0-9a-f]{40})/i.exec(p.magnet || '');
+  const hash = m ? m[1].toLowerCase() : (t && t.infoHash ? t.infoHash.toLowerCase() : '');
+  if (!hash) { renderPlaySidebar(); return; }
+  if (!p.title || !p.group || !p.date || !p.image || !p.detailUrl) {
+    await fetchPlayInfoDetail(hash);
+  } else {
+    renderPlaySidebar();
+  }
+}
+
+function showError(msg) {
+  els.playerError.textContent = msg;
+  els.playerError.classList.remove('hidden');
+}
+function hideError() { els.playerError.classList.add('hidden'); }
+function showNote(msg) {
+  els.playerNote.textContent = msg;
+  els.playerNote.classList.remove('hidden');
+}
+function hideNote() { els.playerNote.classList.add('hidden'); }
+function setLoading(text) {
+  if (text) {
+    els.playerLoading.classList.remove('hidden');
+    els.loadingText.textContent = text;
+    els.btnClickPlay.classList.add('hidden');
+  }
+  else els.playerLoading.classList.add('hidden');
+}
+function showPlayOverlay() {
+  els.playerLoading.classList.remove('hidden');
+  els.loadingText.textContent = '浏览器阻止了自动播放';
+  els.btnClickPlay.classList.remove('hidden');
+}
+function safePlay() {
+  const p = els.video.play();
+  if (p && p.catch) {
+    p.catch((e) => {
+      if (e && e.name === 'NotAllowedError') showPlayOverlay();
+    });
+  }
+  return p;
+}
+
+// ---------- 加载脚本 ----------
+function loadScript(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= urls.length) return reject(new Error('脚本加载失败：' + urls.join(' / ')));
+      const s = document.createElement('script');
+      s.src = urls[i++];
+      s.onload = () => resolve();
+      s.onerror = () => { s.remove(); tryNext(); };
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+}
+async function firstOkFetch(urls, type) {
+  let lastErr = null;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const b = await r.blob();
+      return URL.createObjectURL(new Blob([b], { type }));
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('加载失败');
+}
+
+let wtLoaded = null;
+function getWebTorrent() {
+  if (!wtLoaded) wtLoaded = loadScript(WT_CDNS).then(() => {
+    if (!window.WebTorrent) throw new Error('WebTorrent 库加载失败');
+  });
+  return wtLoaded;
+}
+
+let wtWasmnetLoaded = null;
+function getWebTorrentWasmnet() {
+  if (!wtWasmnetLoaded) {
+    wtWasmnetLoaded = loadScript(WT_WASMNET_CDNS).then(() => {
+      if (!window.WebTorrentWasmnet) throw new Error('wasmnet 版 WebTorrent 加载失败');
+    });
+  }
+  return wtWasmnetLoaded;
+}
+
+// ---------- 搜索（公共 CORS 代理 + 直接粘贴磁力链兜底） ----------
+function proxyUrls(target) {
+  const enc = encodeURIComponent(target);
+  return [
+    'https://corsproxy.io/?url=' + enc,
+    'https://api.allorigins.win/raw?url=' + enc,
+    'https://api.allorigins.win/get?url=' + enc,
+    'https://api.codetabs.com/v1/proxy?quest=' + enc,
+    'https://api.cors.lol/?url=' + enc,
+  ];
+}
+
+// ---------- 本地搜索代理 / wasmnet 中继（server.mjs） ----------
+const FALLBACK_PROXY_PORT = 3000; // 仅在 file:// 直接打开页面时兜底用
+function localProxyBase() {
+  // 页面通过 http/https 打开时一律用同源地址（端口、域名、反向代理都适配）
+  if (location.protocol.indexOf('http') === 0) return '';
+  return 'http://127.0.0.1:' + FALLBACK_PROXY_PORT;
+}
+function mikanBase() {
+  return (localStorage.getItem('p2p_mikan_base') || '').trim();
+}
+function relayOverride() {
+  return (localStorage.getItem('p2p_relay_url') || '').trim();
+}
+let relayProbed = false;
+async function buildRelayUrl() {
+  const cfg = await getServerConfig();
+  const override = relayOverride();
+  let url;
+  if (override) {
+    url = override;
+    if (!/^wss?:\/\//i.test(url)) throw new Error('中继地址需以 ws:// 或 wss:// 开头');
+  } else {
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    url = proto + location.host + ((cfg.wasmnet && cfg.wasmnet.path) || '/wasmnet');
+  }
+  const token = (cfg.wasmnet && cfg.wasmnet.token) || '';
+  if (token && !/[?&]token=/.test(url)) {
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(token);
+  }
+  return url;
+}
+function openRelaySocket(url) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { ws.close(); } catch (e) { /* 忽略 */ }
+      reject(new Error('连接超时（10 秒）'));
+    }, 10000);
+    ws.onopen = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch (e) { /* 忽略 */ }
+      resolve();
+    };
+    ws.onerror = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(new Error('WebSocket 连接失败（检查反向代理是否开启 WebSocket 转发）'));
+    };
+    ws.onclose = (ev) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(new Error('连接被关闭（code ' + ev.code + '）'));
+    };
+  });
+}
+async function testRelay() {
+  els.relayTestStatus.textContent = '测试中…';
+  try {
+    const url = await buildRelayUrl();
+    await openRelaySocket(url);
+    relayProbed = true;
+    state.wasmnetRelayConnected = true;
+    state.wasmnetError = null;
+    els.relayTestStatus.textContent = '✓ 中继连接正常';
+  } catch (e) {
+    serverConfigCache = null;
+    state.wasmnetRelayConnected = false;
+    state.wasmnetError = e.message;
+    els.relayTestStatus.textContent = '✗ ' + e.message;
+    console.warn('[mikan] relay test failed:', e.message);
+  }
+  updateWasmnetStatus();
+}
+async function probeRelay() {
+  if (relayProbed || !state.wasmnetRelayAlive) return;
+  await testRelay();
+}
+function updateProxyStatus() {
+  els.proxyStatus.textContent = state.localProxyAlive
+    ? '已连接搜索代理'
+    : '未检测到搜索代理（需运行 server.mjs）';
+}
+function updateWasmnetStatus() {
+  els.btnWasmnet.classList.toggle('active', state.wasmnetMode);
+  els.wasmnetStatus.textContent = !state.wasmnetRelayAlive
+    ? '中转不可用'
+    : state.wasmnetError
+      ? '中转失败：' + state.wasmnetError
+    : state.wasmnetMode
+      ? (state.wasmnetRelayConnected ? '当前：服务器中转（已连接）' : '当前：服务器中转（连接中…）')
+      : '中转可用';
+}
+async function checkLocalProxy() {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch(localProxyBase() + '/api/health', { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (r.ok) {
+      const j = await r.json();
+      state.localProxyAlive = !!(j && j.ok);
+      state.wasmnetRelayAlive = !!(j && j.wasmnetRelay);
+    } else {
+      state.localProxyAlive = false;
+      state.wasmnetRelayAlive = false;
+    }
+  } catch (e) {
+    state.localProxyAlive = false;
+    state.wasmnetRelayAlive = false;
+  }
+  updateProxyStatus();
+  updateWasmnetStatus();
+}
+
+// ---------- tracker 诊断：逐个测试 HTTP tracker 经服务器转发是否可达 ----------
+function parseBencodeResponse(buf) {
+  const td = new TextDecoder();
+  let i = 0;
+  function read() {
+    const c = buf[i];
+    if (c === 0x64) { // dict
+      i++;
+      const o = {};
+      while (buf[i] !== 0x65) {
+        const k = read();
+        o[typeof k === 'string' ? k : td.decode(k)] = read();
+      }
+      i++;
+      return o;
+    }
+    if (c === 0x6c) { // list
+      i++;
+      const a = [];
+      while (buf[i] !== 0x65) a.push(read());
+      i++;
+      return a;
+    }
+    if (c === 0x69) { // int
+      const e = buf.indexOf(0x65, i);
+      const v = parseInt(td.decode(buf.subarray(i + 1, e)), 10);
+      i = e + 1;
+      return v;
+    }
+    let len = 0;
+    while (buf[i] >= 0x30 && buf[i] <= 0x39) { len = len * 10 + (buf[i] - 0x30); i++; }
+    i++; // ':'
+    const s = buf.subarray(i, i + len);
+    i += len;
+    return s;
+  }
+  try {
+    const root = read();
+    if (root && root['failure reason']) return { failure: td.decode(root['failure reason']) };
+    let peers = 0;
+    const p = root && root['peers'];
+    if (p != null && typeof p.length === 'number') {
+      peers = Array.isArray(p) ? p.length : Math.floor(p.length / 6);
+    }
+    return { peers };
+  } catch (e) {
+    return { failure: '响应解析失败: ' + e.message };
+  }
+}
+
+async function runTrackerDiagnose() {
+  const magnet = state.lastMagnet || (state.results[0] && state.results[0].magnet);
+  if (!magnet) {
+    els.trackerDiag.textContent = '先搜索或播放一个种子，再诊断它的 tracker';
+    return;
+  }
+  els.trackerDiag.textContent = '正在测试 HTTP tracker…';
+  const hashHex = /btih:([0-9a-f]{40})/i.exec(magnet);
+  const infoHash = hashHex ? hashHex[1] : '';
+  if (!infoHash) {
+    els.trackerDiag.textContent = '磁力链里没有 info-hash，无法诊断';
+    return;
+  }
+  const base = localProxyBase();
+  let cfg;
+  try {
+    cfg = await (await fetch(base + '/api/config', { cache: 'no-store' })).json();
+  } catch (e) {
+    els.trackerDiag.textContent = '无法读取服务器配置：' + e.message;
+    return;
+  }
+  if (!cfg || !cfg.ok || !cfg.wasmnet) {
+    els.trackerDiag.textContent = '服务器未启用中继/代理（请重启 server.mjs）';
+    return;
+  }
+  const token = cfg.wasmnet.token || '';
+  const trs = [...new Set([...magnet.matchAll(/[?&]tr=([^&]+)/g)].map((m) => decodeURIComponent(m[1])))];
+  const httpTrs = trs.filter((t) => /^https?:/i.test(t));
+  const udpTrs = trs.filter((t) => /^udp:/i.test(t));
+  const binEnc = (hex) => hex.match(/.{2}/g).map((b) => '%' + b).join('');
+  const lines = ['HTTP tracker ' + httpTrs.length + ' 个，UDP tracker ' + udpTrs.length + ' 个'];
+  for (const tr of httpTrs.slice(0, 8)) {
+    const announce = tr + (tr.includes('?') ? '&' : '?') +
+      'info_hash=' + binEnc(infoHash) +
+      '&peer_id=' + encodeURIComponent('-MK0001-0123456789ab') +
+      '&port=6881&uploaded=0&downloaded=0&left=104857600&compact=1&event=started&numwant=50&key=12345678';
+    const proxyUrl = base + '/api/fetch?token=' + encodeURIComponent(token) + '&url=' + encodeURIComponent(announce);
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(proxyUrl, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!r.ok) {
+        lines.push(tr + ' -> HTTP ' + r.status);
+        continue;
+      }
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const info = parseBencodeResponse(buf);
+      lines.push(tr + ' -> ' + (info.failure ? 'tracker 返回失败: ' + info.failure : '正常，返回做种者 ' + info.peers + ' 个'));
+    } catch (e) {
+      lines.push(tr + ' -> 失败: ' + (e.name === 'AbortError' ? '超时' : e.message));
+    }
+  }
+  if (udpTrs.length) lines.push('UDP tracker 依赖中继转发，此处不逐个测试（看“最近警告”是否有 udp 超时）');
+  els.trackerDiag.textContent = lines.join('\n');
+}
+
+// ---------- 从种子文件补充 tracker ----------
+let serverConfigCache = null;
+async function getServerConfig() {
+  if (serverConfigCache) return serverConfigCache;
+  const r = await fetch(localProxyBase() + '/api/config', { cache: 'no-store' });
+  if (!r.ok) throw new Error('服务器配置读取失败（HTTP ' + r.status + '）');
+  const j = await r.json();
+  if (!j || !j.ok) throw new Error('服务器未启用');
+  serverConfigCache = j;
+  return j;
+}
+
+async function getTorrentTrackers(torrentUrl) {
+  const cfg = await getServerConfig();
+  const url = localProxyBase() + '/api/torrent-trackers?token=' +
+    encodeURIComponent((cfg.wasmnet && cfg.wasmnet.token) || '') +
+    '&url=' + encodeURIComponent(torrentUrl);
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!j || !j.ok || !Array.isArray(j.trackers)) throw new Error('没有拿到 tracker 列表');
+  return j.trackers;
+}
+
+function mergeTrackers(magnet, trackers) {
+  const sep = magnet.indexOf('?') >= 0 ? '&' : '?';
+  const existing = new Set([...magnet.matchAll(/[?&]tr=([^&]+)/g)].map((m) => decodeURIComponent(m[1])));
+  const add = trackers.filter((t) => !existing.has(t));
+  return magnet + add.map((t) => sep + 'tr=' + encodeURIComponent(t)).join('');
+}
+
+async function fetchViaProxy(target, timeoutMs) {
+  const custom = (localStorage.getItem('p2p_proxy_prefix') || '').trim();
+  const enc = encodeURIComponent(target);
+  const urls = custom
+    ? [custom.indexOf('{url}') >= 0 ? custom.replace('{url}', enc) : custom + enc]
+    : proxyUrls(target);
+  const failures = [];
+  for (const url of urls) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      let text = await r.text();
+      try {
+        const j = JSON.parse(text);
+        if (j && typeof j.contents === 'string') text = j.contents; // allorigins /get 格式
+      } catch (e) { /* 普通 HTML */ }
+      if (!text || text.indexOf('<') < 0) throw new Error('返回内容不是网页');
+      return text;
+    } catch (e) {
+      clearTimeout(timer);
+      let host = url;
+      try { host = new URL(url).hostname; } catch (e2) { /* 保留原样 */ }
+      failures.push(host + '：' + (e.name === 'AbortError' ? '超时' : e.message));
+    }
+  }
+  const err = new Error(failures.length ? failures.join('；') : '没有可用的代理');
+  throw err;
+}
+function parseMikan(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const items = [];
+  doc.querySelectorAll('tr.js-search-results-row').forEach((tr) => {
+    const input = tr.querySelector('input.js-episode-select');
+    const magnet = input && input.getAttribute('data-magnet');
+    const a = tr.querySelector('a.magnet-link-wrap');
+    const tds = tr.querySelectorAll('td');
+    if (!magnet || !a) return;
+    const h = /btih:([0-9a-f]{40})/i.exec(magnet);
+    items.push({
+      magnet,
+      hash: h ? h[1].toLowerCase() : null,
+      title: (a.textContent || '').trim(),
+      size: tds[2] ? tds[2].textContent.trim() : '',
+      date: tds[3] ? tds[3].textContent.trim() : '',
+    });
+  });
+  return items;
+}
+
+els.searchForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = els.searchInput.value.trim();
+  if (!q) return;
+  if (/^magnet:\?/i.test(q)) {
+    setPlayInfo({ magnet: q });
+    await playMagnet(q);
+    return;
+  }
+  closeTmdbDetail();
+  state.tmdbSeasonCache.clear();
+  els.tmdbSection.classList.remove('hidden');
+  els.tmdbInfo.textContent = '正在搜索 TMDB…';
+  els.resultsInfo.textContent = '正在搜索…';
+  els.results.innerHTML = '';
+  const [tmdbRes, mikanRes] = await Promise.allSettled([
+    searchTmdbShows(q).catch((err) => { throw err }),
+    searchMikanLocal(q),
+  ]);
+  if (tmdbRes.status === 'fulfilled') {
+    state.tmdbShows = tmdbRes.value;
+    renderTmdbSection(state.tmdbShows.length ? '' : 'TMDB 未找到匹配的番剧（可先在设置里填写 API Key）');
+  } else {
+    state.tmdbShows = [];
+    renderTmdbSection('TMDB 不可用：' + ((tmdbRes.reason && tmdbRes.reason.message) || '未知错误'));
+  }
+  if (mikanRes.status === 'fulfilled') {
+    state.results = mikanRes.value;
+    renderResults();
+  } else {
+    els.resultsInfo.textContent = '';
+    els.results.innerHTML = '<div class="empty">蜜柑搜索失败：<br>' +
+      escapeHtml((mikanRes.reason && mikanRes.reason.message) || '未知错误') +
+      '<br><br>可以直接在上方<strong>粘贴磁力链接</strong>播放；或设置自己的代理前缀；或确认 server.mjs 已启动。</div>';
+  }
+});
+
+els.pasteForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const magnet = els.pasteInput.value.trim();
+  if (!magnet) return;
+  setPlayInfo({ magnet });
+  await playMagnet(magnet);
+});
+
+function resultRowHtml(item, idx) {
+  const isPlaying = !!(state.playingHash && item.hash && state.playingHash === item.hash);
+  return `
+    <div class="result-row${isPlaying ? ' playing' : ''}">
+      <div class="result-main">
+        <div class="result-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+        <div class="result-meta">
+          <span class="size">${escapeHtml(item.size)}</span>
+          <span>${escapeHtml(item.date)}</span>
+          ${item.hash ? `<span class="probe-badge checking" data-hash="${item.hash}">WebRTC 探测中…</span>` : ''}
+        </div>
+      </div>
+      <div class="result-actions">
+        <button class="icon-btn" data-copy="${idx}" type="button">复制磁链</button>
+        <button class="icon-btn" data-enqueue="${idx}" type="button" title="${item.hash && state.queue.some((q) => q.hash === item.hash) ? '从下载队列移除' : '加入队列，下载完成后自动保存到本地'}">${item.hash && state.queue.some((q) => q.hash === item.hash) ? '移除队列' : '加入队列'}</button>
+        <button class="icon-btn" data-play="${idx}" type="button" ${isPlaying ? 'disabled' : ''}>${isPlaying ? '播放中' : '▶ 播放'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindResultActions(items) {
+  els.results.querySelectorAll('[data-play]').forEach((b) => b.addEventListener('click', async () => {
+    const item = items[Number(b.dataset.play)];
+    // 探测显示没有 WebRTC 节点时，直接用服务器中转模式重试
+    if (item.hash && state.probeMap.get(item.hash) === 'fail' && state.wasmnetRelayAlive) {
+      state.wasmnetMode = true;
+      updateWasmnetStatus();
+    }
+    let magnet = item.magnet;
+    // 磁力链只带少量 tracker；从种子文件补充完整 tracker 列表（含可达的公共 tracker）
+    if (item.torrentUrl) {
+      try {
+        const trs = await getTorrentTrackers(item.torrentUrl);
+        if (trs && trs.length) {
+          magnet = mergeTrackers(magnet, trs);
+          console.log('[mikan] 已从种子文件补充 ' + trs.length + ' 个 tracker');
+        }
+      } catch (e) {
+        console.warn('[mikan] 读取种子 tracker 失败:', e.message);
+      }
+    }
+    const tmdb = state.tmdbCurrentShow;
+    setPlayInfo({
+      magnet,
+      title: (tmdb && tmdb.name) || parseShowFromTitle(item.title),
+      group: groupNameOf(item.title),
+      date: item.date || '',
+      fileName: item.title,
+      image: '',
+      posterFallback: (tmdb && tmdb.poster_path) ? tmdbImg(tmdb.poster_path, 'w342') : '',
+    });
+    playMagnet(magnet);
+  }));
+  els.results.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(items[Number(b.dataset.copy)].magnet);
+      b.textContent = '已复制 ✓';
+      setTimeout(() => { b.textContent = '复制磁链'; }, 1500);
+    } catch { b.textContent = '复制失败'; }
+  }));
+  els.results.querySelectorAll('[data-enqueue]').forEach((b) => b.addEventListener('click', () => {
+    const item = items[Number(b.dataset.enqueue)];
+    if (!item) return;
+    const existing = item.hash ? state.queue.find((q) => q.hash === item.hash) : null;
+    if (existing) {
+      removeQueueItem(existing.id);
+      showNote('已从下载队列移除');
+    } else {
+      enqueueItem(item);
+    }
+    refreshResultEnqueueButtons();
+  }));
+}
+
+function refreshResultEnqueueButtons() {
+  if (!els.results) return;
+  els.results.querySelectorAll('[data-enqueue]').forEach((b) => {
+    const item = state.results[Number(b.dataset.enqueue)];
+    const inQueue = !!(item && item.hash && state.queue.some((q) => q.hash === item.hash));
+    b.textContent = inQueue ? '移除队列' : '加入队列';
+    b.title = inQueue ? '从下载队列移除' : '加入队列，下载完成后自动保存到本地';
+  });
+}
+function refreshResultPlayingState() {
+  if (!els.results) return;
+  els.results.querySelectorAll('[data-play]').forEach((b) => {
+    const item = state.results[Number(b.dataset.play)];
+    const isPlaying = !!(item && item.hash && state.playingHash === item.hash);
+    b.disabled = isPlaying;
+    b.textContent = isPlaying ? '播放中' : '▶ 播放';
+    const row = b.closest('.result-row');
+    if (row) row.classList.toggle('playing', isPlaying);
+  });
+}
+
+function renderResults() {
+  const items = state.results;
+  state.resultGroups = [];
+  state.activeGroup = null;
+  els.groupFilter.classList.add('hidden');
+  updateRightEmpty();
+  state.probeMap.clear();
+  els.resultsInfo.textContent = items.length ? '找到 ' + items.length + ' 个资源' : '';
+  if (!items.length) {
+    els.results.innerHTML = '<div class="empty">没有找到相关资源，换个关键词试试</div>';
+    return;
+  }
+  els.results.innerHTML = items.map(resultRowHtml).join('');
+  bindResultActions(items);
+  probeResults(items);
+  refreshResultPlayingState();
+}
+
+// ---------- 下载队列 ----------
+function enqueueItem(item) {
+  if (!item || !item.magnet) return;
+  if (item.hash && state.queue.some((q) => q.hash && q.hash === item.hash)) {
+    showNote('该资源已在下载队列中');
+    return;
+  }
+  state.queue.push({
+    id: 'q-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    magnet: item.magnet,
+    title: item.title || '未命名资源',
+    hash: item.hash || null,
+    status: 'waiting',
+    progress: 0,
+    speed: 0,
+    downloaded: 0,
+    total: 0,
+    error: null,
+    torrent: null,
+    file: null,
+    cacheName: null,
+    addedAt: Date.now(),
+    playTime: 0,
+    group: item.group || groupNameOf(item.title || ''),
+    date: item.date || '',
+    image: item.image || null,
+    fileName: item.title || '',
+    detailUrl: item.detailUrl || '',
+  });
+  renderQueue();
+  showNote('已加入下载队列，开始下载到本地');
+  scheduleQueueSave();
+  scheduleQueue();
+}
+
+function queueStatusText(it) {
+  switch (it.status) {
+    case 'waiting': return '等待中';
+    case 'downloading': {
+      const part = it.videoFiles && it.videoFiles.length > 1
+        ? '（' + ((it.fileIndex || 0) + 1) + '/' + it.videoFiles.length + ' 个文件）'
+        : '';
+      return '下载中 ' + fmtSize(it.speed) + '/s · ' + Math.round((it.progress || 0) * 100) + '%' + part;
+    }
+    case 'paused': return '已暂停' + (it.torrent ? '（保留下载进度）' : '');
+    case 'done': return '已完成' + (it.cacheName ? '，已存入网页缓存，可离线播放' : '，已触发浏览器保存到本地');
+    case 'error': return '失败：' + (it.error || '未知错误');
+    default: return it.status;
+  }
+}
+
+function renderQueue() {
+  if (!els.btnQueue || !els.queueList) return;
+  els.btnQueue.textContent = state.queue.length ? '队列 (' + state.queue.length + ')' : '队列';
+  scheduleQueueSave();
+  refreshResultEnqueueButtons();
+  if (els.queueOverlay.classList.contains('hidden')) return;
+  els.queueList.innerHTML = state.queue.length
+    ? state.queue.map((it, i) => `
+      <div class="queue-row">
+        <div class="queue-main">
+          <div class="queue-title" title="${escapeHtml(it.title)}">${escapeHtml(it.title)}</div>
+          <div class="queue-meta">${escapeHtml(queueStatusText(it))}${it.total ? ' · ' + fmtSize(it.total) : ''}</div>
+          ${it.status === 'downloading' || it.status === 'paused' || it.status === 'done'
+            ? '<div class="progress"><div style="width:' + Math.round((it.progress || 0) * 100) + '%"></div></div>'
+            : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="icon-btn" data-qplay="${i}" type="button" title="使用队列进度在播放器里播放">播放</button>
+          ${it.status === 'waiting' || it.status === 'downloading'
+            ? '<button class="icon-btn" data-qpause="${i}" type="button">暂停</button>'
+            : it.status === 'paused'
+              ? '<button class="icon-btn" data-qpause="${i}" type="button">继续</button>'
+              : ''}
+          <button class="icon-btn" data-qdel="${i}" type="button">移除</button>
+        </div>
+      </div>
+    `).join('')
+    : '<div class="empty">队列为空，搜索后在结果里点“加入队列”</div>';
+  els.queueList.querySelectorAll('[data-qplay]').forEach((b) => b.addEventListener('click', async () => {
+    const it = state.queue[Number(b.dataset.qplay)];
+    if (!it) return;
+    els.queueOverlay.classList.add('hidden');
+    closeSettings();
+    const used = await queuePlay(it);
+    if (!used) playMagnet(it.magnet);
+  }));
+  els.queueList.querySelectorAll('[data-qpause]').forEach((b) => b.addEventListener('click', () => {
+    const it = state.queue[Number(b.dataset.qpause)];
+    if (it) togglePauseQueueItem(it.id);
+  }));
+  els.queueList.querySelectorAll('[data-qdel]').forEach((b) => b.addEventListener('click', () => {
+    const it = state.queue[Number(b.dataset.qdel)];
+    if (it) removeQueueItem(it.id);
+  }));
+}
+
+function queueConcurrency() {
+  try {
+    const v = parseInt(localStorage.getItem('p2p_queue_concurrency') || '1', 10);
+    return isFinite(v) ? Math.min(5, Math.max(1, v)) : 1;
+  } catch { return 1; }
+}
+
+function queueMatchForMagnet(magnet) {
+  const m = /btih:([0-9a-f]{40})/i.exec(magnet || '');
+  const hash = m ? m[1].toLowerCase() : null;
+  if (!hash) return null;
+  return state.queue.find((q) => q.hash && String(q.hash).toLowerCase() === hash) || null;
+}
+
+function waitForQueueFile(item, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (item.file && item.torrent) return resolve(item.file);
+    if (!item._fileReadyWaiters) item._fileReadyWaiters = [];
+    const timer = setTimeout(() => {
+      const i = item._fileReadyWaiters.indexOf(w);
+      if (i >= 0) item._fileReadyWaiters.splice(i, 1);
+      reject(new Error('等待队列文件超时'));
+    }, timeoutMs || 120000);
+    const w = (file, err) => {
+      clearTimeout(timer);
+      const i = item._fileReadyWaiters.indexOf(w);
+      if (i >= 0) item._fileReadyWaiters.splice(i, 1);
+      err ? reject(err) : resolve(file);
+    };
+    item._fileReadyWaiters.push(w);
+  });
+}
+
+function activeQueueCount() {
+  return state.queue.filter((q) => q.status === 'downloading' || (q.status === 'paused' && q.torrent)).length;
+}
+
+let queueSchedulerBusy = false;
+let queueClientPromise = null;
+async function getQueueClient() {
+  if (state.queueClient && state.queueClient.__wasmnet) return state.queueClient;
+  if (!queueClientPromise) {
+    queueClientPromise = (async () => {
+      await getWebTorrentWasmnet();
+      if (state.queueClient) {
+        try { state.queueClient.destroy(); } catch (e) { /* 忽略 */ }
+      }
+      const c = new window.WebTorrentWasmnet({ dht: false, lsd: false, maxConns: 120 });
+      c.__wasmnet = true;
+      state.queueClient = c;
+      return c;
+    })().finally(() => { queueClientPromise = null; });
+  }
+  return queueClientPromise;
+}
+function scheduleQueue() {
+  if (queueSchedulerBusy) return;
+  queueSchedulerBusy = true;
+  setTimeout(async () => {
+    try {
+      while (true) {
+        const max = queueConcurrency();
+        const waiting = state.queue.filter((q) => q.status === 'waiting');
+        const active = activeQueueCount();
+        const slots = Math.max(0, max - active);
+        if (!slots || !waiting.length) break;
+        const batch = waiting.slice(0, slots);
+        for (const item of batch) item.status = 'downloading';
+        renderQueue();
+        batch.forEach((item) => {
+          runQueueItem(item).finally(() => scheduleQueue());
+        });
+      }
+    } catch (e) {
+      console.warn('[queue] 调度异常:', e && e.message);
+    } finally {
+      queueSchedulerBusy = false;
+    }
+  }, 0);
+}
+
+async function runQueueItem(item) {
+  item.status = 'downloading';
+  item.error = null;
+  renderQueue();
+  try {
+    const qc = await getQueueClient();
+    if (!state.sw) state.sw = await initServiceWorker();
+    if (state.sw) {
+      try { qc.createServer({ controller: state.sw }); } catch (e) { /* 忽略 */ }
+    }
+    const opts = await getStoreOpts();
+    let full = withWsTrackers(item.magnet);
+    full = mergeTrackers(full, FALLBACK_TRACKERS);
+    const t = qc.add(full, opts);
+    item.torrent = t;
+    t.on('warning', (w) => { item.error = (w && w.message) || String(w || ''); });
+    t.on('error', (err) => { item.error = (err && err.message) || String(err || ''); });
+
+    // 第一步：拿到种子元数据
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err) => { if (settled) return; settled = true; err ? reject(err) : resolve(); };
+      t.once('ready', () => finish());
+      t.once('error', (err) => finish(err || new Error('种子错误')));
+      t.once('close', () => finish(new Error('已移除')));
+      setTimeout(() => finish(new Error('等待种子元数据超时（90 秒）')), 90000);
+    });
+
+    const allVideos = t.files.filter((f) => VIDEO_EXTS.includes(extOf(f.name)));
+    const files = allVideos.length ? allVideos.sort((a, b) => a.offset - b.offset) : t.files.slice();
+    if (!files.length) throw new Error('种子中没有可用文件');
+    item.videoFiles = files.map((f) => ({ name: f.name, length: f.length }));
+    item.total = files.reduce((s, f) => s + (f.length || 0), 0);
+    item.downloaded = 0;
+    item.file = files[0];
+    item.fileIndex = 0;
+    item.fileReady = true;
+    if (item._fileReadyWaiters && item._fileReadyWaiters.length) {
+      const waiters = item._fileReadyWaiters;
+      item._fileReadyWaiters = [];
+      for (const w of waiters) w(files[0]);
+    }
+
+    // 第二步：合集按文件顺序逐个下载，每个完成就触发浏览器保存到本地
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
+      item.file = file;
+      item.fileIndex = fi;
+      try {
+        t.files.forEach((f) => f.deselect());
+        file.select();
+      } catch (e) { /* 忽略 */ }
+
+      const baseDone = files.slice(0, fi).reduce((s, f) => s + (f.length || 0), 0);
+      if (file.done || t.done) {
+        item.downloaded = baseDone + (file.length || 0);
+        item.progress = item.total ? item.downloaded / item.total : 1;
+        renderQueue();
+        continue;
+      }
+
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        let iv = null;
+        const finish = (err) => {
+          if (settled) return;
+          settled = true;
+          if (iv) clearInterval(iv);
+          err ? reject(err) : resolve();
+        };
+        iv = setInterval(() => {
+          const fileProg = typeof file.progress === 'number' ? file.progress : (t.progress || 0);
+          item.downloaded = baseDone + fileProg * (file.length || 0);
+          item.progress = item.total ? item.downloaded / item.total : 0;
+          item.speed = t.downloadSpeed || 0;
+          renderQueue();
+        }, 1000);
+        file.once('done', () => finish());
+        t.once('done', () => finish());
+        t.once('error', (err) => finish(err || new Error('下载失败')));
+        t.once('close', () => finish(new Error('已移除')));
+        if (file.done || t.done) finish();
+      });
+
+      item.downloaded = baseDone + (file.length || 0);
+      item.progress = item.total ? item.downloaded / item.total : 1;
+      renderQueue();
+      const blob = await fileToBlob(file, (p) => {
+        item.downloaded = baseDone + p * (file.length || 0);
+        item.progress = item.total ? item.downloaded / item.total : 0;
+        renderQueue();
+      });
+      saveBlob(blob, file.name);
+      // 单文件任务才自动写入网页缓存；合集文件多，避免占满 OPFS
+      if (files.length === 1) {
+        const cacheName = safeName(file.name);
+        const cacheOk = await saveToCacheQuiet(cacheName, blob);
+        item.cacheName = cacheOk ? cacheName : null;
+      }
+    }
+
+    item.progress = 1;
+    item.speed = 0;
+    item.downloaded = item.total;
+    if (files.length > 1) item.cacheName = null;
+    item.status = 'done';
+  } catch (err) {
+    item.status = 'error';
+    item.error = (err && err.message) || String(err || '未知错误');
+    if (item._fileReadyWaiters && item._fileReadyWaiters.length) {
+      const waiters = item._fileReadyWaiters;
+      item._fileReadyWaiters = [];
+      for (const w of waiters) w(null, err);
+    }
+  } finally {
+    item.speed = 0;
+    if (item.torrent) {
+      try { item.torrent.destroy(); } catch (e) { /* 忽略 */ }
+      item.torrent = null;
+    }
+    renderQueue();
+    scheduleQueueSave();
+  }
+}
+
+function removeQueueItem(id) {
+  const it = state.queue.find((q) => q.id === id);
+  if (!it) return;
+  if (it.torrent) {
+    try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
+    it.torrent = null;
+  }
+  state.queue = state.queue.filter((q) => q.id !== id);
+  renderQueue();
+  scheduleQueueSave();
+}
+
+function clearFinishedQueue() {
+  for (const it of state.queue) {
+    if (it.status === 'done' || it.status === 'error' || it.status === 'paused') {
+      if (it.torrent) {
+        try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
+        it.torrent = null;
+      }
+    }
+  }
+  state.queue = state.queue.filter((q) => q.status !== 'done' && q.status !== 'error' && q.status !== 'paused');
+  renderQueue();
+  scheduleQueueSave();
+}
+
+function togglePauseQueueItem(id) {
+  const it = state.queue.find((q) => q.id === id);
+  if (!it) return;
+  if (it.status === 'paused') {
+    it.status = it.torrent ? 'downloading' : 'waiting';
+    if (it.torrent) {
+      try { it.torrent.resume(); } catch (e) { /* 忽略 */ }
+    }
+    renderQueue();
+    scheduleQueue();
+  } else if (it.status === 'waiting' || it.status === 'downloading') {
+    it.status = 'paused';
+    if (it.torrent) {
+      try { it.torrent.pause(); } catch (e) { /* 忽略 */ }
+    }
+    renderQueue();
+  }
+  scheduleQueueSave();
+}
+
+async function queuePlay(item) {
+  if (item.hash) {
+    state.playingHash = item.hash;
+    refreshResultPlayingState();
+  }
+  setPlayInfo({
+    magnet: item.magnet,
+    title: item.title || '',
+    group: item.group || '',
+    date: item.date || '',
+    fileName: item.file ? item.file.name : (item.fileName || item.title || ''),
+    image: item.image || '',
+    detailUrl: item.detailUrl || '',
+  });
+  // 已完成：优先读网页缓存（OPFS）里的本地文件
+  if (item.status === 'done' && item.cacheName) {
+    const entries = await readCacheEntries();
+    const e = entries.find((x) => x.name === item.cacheName);
+    if (e) {
+      await stopPlayback(true);
+      showPlayer();
+      setLoading('正在读取本地缓存…');
+      try {
+        const blob = await e.handle.getFile();
+        setLoading(false);
+        els.video.src = URL.createObjectURL(blob);
+        const resumeAt = item.playTime || 0;
+        if (resumeAt > 5) {
+          els.video.onloadedmetadata = () => {
+            try { els.video.currentTime = Math.min(resumeAt, els.video.duration || resumeAt); } catch (err) { /* 忽略 */ }
+            safePlay();
+          };
+        } else {
+          safePlay();
+        }
+        if (!item.detailUrl && item.hash) fetchPlayInfoDetail(item.hash);
+      } catch (err) {
+        setLoading(false);
+        showError('读取缓存失败：' + err.message);
+        return true;
+      }
+      return true;
+    }
+    return false; // 缓存文件已不存在，让播放器走独立下载
+  }
+  // 等待中 / 已暂停 / 下载中：都用队列里的同一个 torrent 播放，共用下载进度
+  if (!item.torrent || !item.file) {
+    if (item.status === 'error') return false;
+    if (item.status === 'paused' || item.status === 'waiting') {
+      item.status = 'waiting';
+      renderQueue();
+      scheduleQueue();
+    } else if (item.status !== 'downloading') {
+      return false;
+    }
+    let file = null;
+    try {
+      file = await waitForQueueFile(item, 120000);
+    } catch (err) {
+      showError('队列播放失败：' + err.message);
+      return false;
+    }
+    if (!file || !item.torrent) return false;
+  }
+  if (item.status === 'paused') {
+    try { item.torrent.resume(); } catch (e) { /* 忽略 */ }
+    item.status = 'downloading';
+    renderQueue();
+  }
+  await stopPlayback(true);
+  state.wasmnetMode = true;
+  state.torrent = item.torrent;
+  state.currentFile = item.file;
+  showPlayer();
+  setLoading('正在使用队列下载进度播放…');
+  try {
+    await startFile(item.file);
+    const qt = item.torrent;
+    if (qt && item.videoFiles && item.videoFiles.length > 1) {
+      const videos = qt.files.filter((f) => VIDEO_EXTS.includes(extOf(f.name)));
+      if (videos.length > 1) renderFileChips(videos);
+    }
+    const resumeAt = item.playTime || 0;
+    if (resumeAt > 5) {
+      const trySeek = () => {
+        if (els.video.readyState >= 1) {
+          try { els.video.currentTime = Math.min(resumeAt, els.video.duration || resumeAt); } catch (err) { /* 忽略 */ }
+        } else {
+          setTimeout(trySeek, 500);
+        }
+      };
+      setTimeout(trySeek, 300);
+    }
+    return true;
+  } catch (err) {
+    setLoading(false);
+    showError('队列播放失败：' + ((err && err.message) || err));
+    return true;
+  }
+}
+
+function saveQueueState() {
+  try {
+    const data = state.queue.map((it) => ({
+      id: it.id,
+      magnet: it.magnet,
+      title: it.title,
+      hash: it.hash || null,
+      status: it.status === 'done' ? 'done' : 'paused',
+      progress: it.status === 'done' ? 1 : (it.progress || 0),
+      downloaded: it.downloaded || 0,
+      total: it.total || 0,
+      error: it.error || null,
+      cacheName: it.cacheName || null,
+      addedAt: it.addedAt || Date.now(),
+      playTime: it.playTime || 0,
+      group: it.group || '',
+      date: it.date || '',
+      image: it.image || null,
+      fileName: it.fileName || it.title || '',
+      detailUrl: it.detailUrl || '',
+      videoFiles: it.videoFiles || null,
+      fileIndex: it.fileIndex || 0,
+    }));
+    localStorage.setItem('p2p_queue', JSON.stringify(data));
+  } catch (e) { /* 忽略 */ }
+}
+
+function scheduleQueueSave() {
+  if (state.queueSaveTimer) return;
+  state.queueSaveTimer = setTimeout(() => {
+    state.queueSaveTimer = null;
+    saveQueueState();
+  }, 1200);
+}
+
+function restoreQueue() {
+  try {
+    const raw = localStorage.getItem('p2p_queue');
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    for (const it of arr) {
+      const done = it.status === 'done';
+      state.queue.push({
+        id: it.id || ('q-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
+        magnet: it.magnet || '',
+        title: it.title || '未命名资源',
+        hash: it.hash || null,
+        status: done ? 'done' : 'paused',
+        progress: done ? 1 : (it.progress || 0),
+        speed: 0,
+        downloaded: it.downloaded || 0,
+        total: it.total || 0,
+        error: done ? null : (it.error || null),
+        torrent: null,
+        file: null,
+        cacheName: it.cacheName || null,
+        addedAt: it.addedAt || Date.now(),
+        playTime: it.playTime || 0,
+        group: it.group || '',
+        date: it.date || '',
+        image: it.image || null,
+        fileName: it.fileName || it.title || '',
+        detailUrl: it.detailUrl || '',
+        videoFiles: it.videoFiles || null,
+        fileIndex: it.fileIndex || 0,
+      });
+    }
+  } catch (e) { /* 忽略 */ }
+  renderQueue();
+}
+
+async function saveToCacheQuiet(name, blob) {
+  const root = await opfsRoot();
+  if (!root) return false;
+  try {
+    const dir = await root.getDirectoryHandle('mikan-cache', { create: true });
+    const handle = await dir.getFileHandle(name, { create: true });
+    const w = await handle.createWritable();
+    await w.write(blob);
+    await w.close();
+    return true;
+  } catch { return false; }
+}
+
+// ---------- TMDB 番剧搜索与选集 ----------
+async function searchMikanLocal(q) {
+  if (!state.localProxyAlive) await checkLocalProxy();
+  if (state.localProxyAlive) {
+    let r;
+    try {
+      const mb = mikanBase();
+      r = await fetch(localProxyBase() + '/api/search?q=' + encodeURIComponent(q) +
+        (mb ? '&base=' + encodeURIComponent(mb) : ''));
+    } catch (e) {
+      // 服务器完全连不上时才回退到公共代理；否则以服务器返回的错误为准
+    }
+    if (r) {
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data.items)) return data.items;
+      } else {
+        const j = await r.json().catch(() => null);
+        if (j && j.error) {
+          const detail = Array.isArray(j.details) && j.details.length ? '（' + j.details.join('；') + '）' : '';
+          throw new Error(j.error + detail);
+        }
+        throw new Error('服务器搜索失败（HTTP ' + r.status + '）');
+      }
+    }
+  }
+  const site = mikanBase() || 'https://mikanime.tv';
+  const html = await fetchViaProxy(site + '/Home/Search?searchstr=' + encodeURIComponent(q), 10000);
+  return parseMikan(html);
+}
+
+function tmdbImg(path, size) {
+  return path ? 'https://image.tmdb.org/t/p/' + (size || 'w342') + path : '';
+}
+
+async function tmdbApi(path) {
+  const cfg = await getServerConfig();
+  const key = (localStorage.getItem('p2p_tmdb_key') || '').trim();
+  const base = (localStorage.getItem('p2p_tmdb_base') || '').trim();
+  const url = localProxyBase() + '/api/tmdb' + path +
+    (path.indexOf('?') >= 0 ? '&' : '?') +
+    'token=' + encodeURIComponent((cfg.wasmnet && cfg.wasmnet.token) || '') +
+    (key ? '&key=' + encodeURIComponent(key) : '') +
+    (base ? '&base=' + encodeURIComponent(base) : '');
+  const r = await fetch(url, { cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  return j;
+}
+
+async function searchTmdbShows(q) {
+  const j = await tmdbApi('/search?q=' + encodeURIComponent(q));
+  return Array.isArray(j.results) ? j.results : [];
+}
+
+function renderTmdbSection(info) {
+  els.tmdbSection.classList.remove('hidden');
+  els.tmdbInfo.textContent = info || '';
+  const shows = state.tmdbShows;
+  if (!shows.length) {
+    els.tmdbList.innerHTML = '';
+    return;
+  }
+  els.tmdbList.innerHTML = shows.map((s, i) => `
+    <div class="tmdb-card" data-tmdb="${i}">
+      ${s.poster_path
+        ? `<img class="tmdb-poster" src="${tmdbImg(s.poster_path, 'w342')}" loading="lazy" alt="" onerror="this.style.display='none'">`
+        : '<div class="tmdb-poster"></div>'}
+      <div class="tmdb-card-body">
+        <div class="tmdb-name">${escapeHtml(s.name || '')}${s.first_air_date
+          ? ' <span class="muted">(' + escapeHtml(s.first_air_date.slice(0, 4)) + ')</span>'
+          : ''}</div>
+        <div class="tmdb-meta">${s.number_of_seasons ? s.number_of_seasons + ' 季' : ''}${s.number_of_episodes
+          ? ' · ' + s.number_of_episodes + ' 集'
+          : ''}${s.first_air_date ? ' · ' + escapeHtml(s.first_air_date) : ''}</div>
+        <div class="tmdb-overview">${escapeHtml(s.overview || '暂无简介')}</div>
+        <button class="icon-btn" type="button" style="margin-top:auto">查看剧集</button>
+      </div>
+    </div>
+  `).join('');
+  els.tmdbList.querySelectorAll('.tmdb-card').forEach((card) => {
+    card.addEventListener('click', () => openTmdbShow(state.tmdbShows[Number(card.dataset.tmdb)]));
+  });
+}
+
+function closeTmdbDetail() {
+  state.tmdbCurrentShow = null;
+  state.tmdbCurrentSeason = 1;
+  els.tmdbDetail.classList.add('hidden');
+  updateRightEmpty();
+}
+
+async function openTmdbShow(show) {
+  state.tmdbCurrentShow = show;
+  state.tmdbCurrentSeason = 1;
+  els.tmdbDetail.classList.remove('hidden');
+  updateRightEmpty();
+  if (show.poster_path) {
+    els.tmdbDetailPoster.src = tmdbImg(show.poster_path, 'w342');
+    els.tmdbDetailPoster.style.display = '';
+  } else {
+    els.tmdbDetailPoster.removeAttribute('src');
+    els.tmdbDetailPoster.style.display = 'none';
+  }
+  els.tmdbDetailName.textContent = show.name + (show.first_air_date ? '（' + show.first_air_date.slice(0, 4) + '）' : '');
+  els.tmdbDetailMeta.textContent = 'TMDB ID ' + show.id + (show.original_name ? ' · ' + show.original_name : '');
+  els.tmdbDetailOverview.textContent = show.overview || '暂无简介';
+  els.tmdbEpisodes.innerHTML = '<span class="muted">正在获取季信息…</span>';
+  els.tmdbSeasonTabs.innerHTML = '';
+  els.tmdbInfo.textContent = '';
+  try {
+    const detail = await tmdbApi('/tv/' + show.id);
+    const seasons = (detail.seasons || []).filter((s) => s.season_number > 0);
+    state.tmdbCurrentShow = Object.assign({}, show, { _seasons: seasons });
+    if (seasons.length) {
+      selectTmdbSeason(seasons[0].season_number);
+    } else {
+      els.tmdbEpisodes.innerHTML = '<span class="muted">该剧没有可用的季信息</span>';
+    }
+  } catch (err) {
+    els.tmdbEpisodes.innerHTML = '<span class="muted">TMDB 详情获取失败：' + escapeHtml(err.message) + '</span>';
+  }
+}
+
+function renderSeasonTabs(seasons) {
+  els.tmdbSeasonTabs.innerHTML = seasons.map((s) => `
+    <button class="season-chip${s.season_number === state.tmdbCurrentSeason ? ' active' : ''}" data-season="${s.season_number}" type="button">
+      第 ${s.season_number} 季${s.episode_count ? '（' + s.episode_count + ' 集）' : ''}
+    </button>
+  `).join('');
+  els.tmdbSeasonTabs.querySelectorAll('.season-chip').forEach((b) => {
+    b.addEventListener('click', () => selectTmdbSeason(Number(b.dataset.season)));
+  });
+}
+
+async function selectTmdbSeason(num) {
+  state.tmdbCurrentSeason = num;
+  const show = state.tmdbCurrentShow;
+  if (!show) return;
+  renderSeasonTabs((show._seasons) || []);
+  els.tmdbEpisodes.innerHTML = '<span class="muted">正在加载第 ' + num + ' 季…</span>';
+  const cacheKey = show.id + ':' + num;
+  let episodes = state.tmdbSeasonCache.get(cacheKey);
+  if (!episodes) {
+    try {
+      const data = await tmdbApi('/tv/' + show.id + '/season/' + num);
+      episodes = data.episodes || [];
+      state.tmdbSeasonCache.set(cacheKey, episodes);
+    } catch (err) {
+      els.tmdbEpisodes.innerHTML = '<span class="muted">剧集加载失败：' + escapeHtml(err.message) + '</span>';
+      return;
+    }
+  }
+  renderEpisodes(episodes, show);
+}
+
+function renderEpisodes(episodes, show) {
+  if (!episodes.length) {
+    els.tmdbEpisodes.innerHTML = '<span class="muted">该季暂无剧集信息</span>';
+    return;
+  }
+  els.tmdbEpisodes.innerHTML = episodes.map((ep) => `
+    <button class="episode-chip" data-season="${state.tmdbCurrentSeason}" data-ep="${ep.episode_number}" type="button">
+      <span class="ep-no">第 ${ep.episode_number} 集</span>
+      ${ep.name ? `<span class="ep-name">${escapeHtml(ep.name)}</span>` : ''}
+    </button>
+  `).join('');
+  els.tmdbEpisodes.querySelectorAll('.episode-chip').forEach((b) => {
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await searchEpisodeOnMikan(show, Number(b.dataset.season), Number(b.dataset.ep));
+      } finally {
+        b.disabled = false;
+      }
+    });
+  });
+}
+
+function groupNameOf(title) {
+  const m = /^\s*[\[【]([^\]】]+)[\]】]\s*/.exec(title || '');
+  return m ? m[1].trim() : '其他';
+}
+
+// ---------- 选集模糊搜索：多关键词合并 + 季/集筛选 + 字幕组分类 ----------
+function baseAnimeName(name) {
+  let s = String(name || '').trim();
+  s = s
+    .replace(/[～~].*$/, '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/\s+[-–—]\s+.*$/, '')
+    .trim();
+  return s;
+}
+
+function cnNum(s) {
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const d = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (/^[一二三四五六七八九]$/.test(s)) return d[s];
+  if (s === '十') return 10;
+  if (/^十[一二三四五六七八九]$/.test(s)) return 10 + d[s[1]];
+  if (/^[一二三四五六七八九]十[一二三四五六七八九]$/.test(s)) return d[s[0]] * 10 + d[s[2]];
+  if (/^[一二三四五六七八九]十$/.test(s)) return d[s[0]] * 10;
+  return null;
+}
+
+function matchSeason(title) {
+  let m;
+  if ((m = /(?:^|[^A-Za-z0-9])S(\d{1,2})(?:[^0-9]|$)/i.exec(title))) return parseInt(m[1], 10);
+  if ((m = /第\s*([一二三四五六七八九十百\d]+)\s*季/.exec(title))) return cnNum(m[1]);
+  if ((m = /([一二三四五六七八九十百\d]+)\s*[期シーズン]/.exec(title))) return cnNum(m[1]);
+  if ((m = /(\d+)\s*シーズン/.exec(title))) return parseInt(m[1], 10);
+  if ((m = /Season\s*(\d+)/i.exec(title))) return parseInt(m[1], 10);
+  if ((m = /(\d+)\s*(?:nd|th|rd|st)\s*Season/i.exec(title))) return parseInt(m[1], 10);
+  return null;
+}
+
+function matchEpisode(title) {
+  const t = title;
+  let m;
+  if ((m = /第\s*([一二三四五六七八九十百\d]+)\s*(?:话|話|集)/.exec(t))) return { n: cnNum(m[1]), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])S\d{1,2}E(\d{1,2})(?:[^0-9A-Za-z]|$)/i.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])(?:EP|Ep|ep|E)\s*(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /(?:^|[^0-9A-Za-z])(?:\[|\()0*(\d{1,2})(?:\]|\))(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: parseInt(m[1], 10), batch: null };
+  if ((m = /第\s*(\d+)\s*[-~至]\s*(\d+)\s*(?:话|話|集)/.exec(t))) return { n: null, batch: [parseInt(m[1], 10), parseInt(m[2], 10)] };
+  if ((m = /(?:^|[^0-9A-Za-z])(\d{1,2})\s*[-~]\s*(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) return { n: null, batch: [parseInt(m[1], 10), parseInt(m[2], 10)] };
+  if ((m = /(?:^|[^0-9A-Za-z])(\d{1,2})(?:[^0-9A-Za-z]|$)/.exec(t))) {
+    const n = parseInt(m[1], 10);
+    if ([480, 576, 720, 1080, 2160].includes(n)) return null;
+    return { n, batch: null };
+  }
+  return null;
+}
+
+function filterEpisodeItems(items, season, ep) {
+  const out = [];
+  for (const it of items) {
+    const t = it.title || '';
+    const s = matchSeason(t);
+    const e = matchEpisode(t);
+    if (s != null && s !== season) continue;            // 明确是别的季
+    if (e && e.batch) {
+      if (ep < e.batch[0] || ep > e.batch[1]) continue; // 合集范围不含这一集
+    } else if (e && e.n != null && e.n !== ep) {
+      continue;                                          // 明确是别的集
+    }
+    let score = 0;
+    if (s === season) score += 2;
+    if (e && e.n === ep) score += 3;
+    else if (e && e.batch) score += 2;
+    else if (!e) score += 1;
+    out.push({ it, score });
+  }
+  out.sort((a, b) => b.score - a.score || String(a.it.title).localeCompare(String(b.it.title)));
+  return out.map((x) => x.it);
+}
+
+function filterSeasonItems(items, season) {
+  const out = [];
+  for (const it of items) {
+    const s = matchSeason(it.title || '');
+    if (s != null && s !== season) continue; // 明确是别的季就排除
+    out.push({ it, score: s === season ? 2 : 1 });
+  }
+  out.sort((a, b) => b.score - a.score || String(a.it.title).localeCompare(String(b.it.title)));
+  return out.map((x) => x.it);
+}
+
+async function searchSeasonOnMikan(show, season) {
+  const label = (show ? show.name : '') + ' 第' + season + '季（全部）';
+  els.resultsInfo.textContent = '正在搜索本季资源：' + label + '…';
+  els.results.innerHTML = '<div class="empty">正在搜索…</div>';
+  els.groupFilter.classList.add('hidden');
+  updateRightEmpty();
+  const names = [];
+  const zh = baseAnimeName(show && show.name);
+  const jp = baseAnimeName(show && show.original_name);
+  if (zh) names.push(zh);
+  if (jp && jp !== zh) names.push(jp);
+  const candidates = [];
+  for (const name of names) {
+    candidates.push(name, `${name} S${season}`, `${name} 第${season}季`, `${name} Season ${season}`, `${name} ${season}期`);
+  }
+  const seen = new Set();
+  const uniq = candidates.filter((c) => !seen.has(c) && seen.add(c)).slice(0, 6);
+  const merged = new Map();
+  let lastErr = null;
+  for (let i = 0; i < uniq.length; i += 2) {
+    const batch = uniq.slice(i, i + 2);
+    const results = await Promise.allSettled(batch.map((c) => searchMikanLocal(c)));
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        for (const it of r.value) if (it.hash) merged.set(it.hash, it);
+      } else {
+        lastErr = r.reason && r.reason.message;
+      }
+    }
+  }
+  const rawItems = [...merged.values()];
+  if (!rawItems.length) {
+    els.resultsInfo.textContent = label + '：蜜柑没有搜到匹配资源';
+    els.results.innerHTML = '<div class="empty">没有搜到本季资源' +
+      (lastErr ? '（' + escapeHtml(lastErr) + '）' : '，可以试试更完整的关键词') + '</div>';
+    return;
+  }
+  const items = filterSeasonItems(rawItems, season);
+  if (!items.length) {
+    els.resultsInfo.textContent = label + '：搜到 ' + rawItems.length + ' 条，但都不是第 ' + season + ' 季';
+    els.results.innerHTML = '<div class="empty">搜到一些资源，但标题里没有匹配本季的标识</div>';
+    return;
+  }
+  renderEpisodeResults(items, label, rawItems.length);
+}
+
+function applyProbeBadges() {
+  els.results.querySelectorAll('.probe-badge[data-hash]').forEach((b) => {
+    const st = state.probeMap.get(b.dataset.hash);
+    if (!st || st === 'checking') return;
+    b.className = 'probe-badge ' + st;
+    b.textContent = st === 'ok' ? '✓ 有 WebRTC 节点' : '✗ 无 WebRTC 节点';
+  });
+}
+
+function renderGroupFilter() {
+  const chips = [
+    { name: null, label: '全部', count: state.results.length },
+    ...state.resultGroups.map((g) => ({ name: g.name, label: g.name, count: g.items.length })),
+  ];
+  els.groupFilter.classList.remove('hidden');
+  updateRightEmpty();
+  els.groupFilter.innerHTML = '<span class="gf-label">字幕组：</span>' + chips.map((c) => `
+    <button class="group-chip${state.activeGroup === c.name ? ' active' : ''}" data-group="${escapeHtml(c.name || '')}" type="button">
+      ${escapeHtml(c.label)}（${c.count}）
+    </button>
+  `).join('');
+  els.groupFilter.querySelectorAll('.group-chip').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.activeGroup = b.dataset.group || null;
+      renderGroupFilter();
+      renderGroupedRows();
+    });
+  });
+}
+
+function renderGroupedRows() {
+  const active = state.activeGroup;
+  const items = active
+    ? (state.resultGroups.find((g) => g.name === active) || { items: [] }).items
+    : state.results;
+  if (!items.length) {
+    els.results.innerHTML = '<div class="empty">该字幕组没有匹配资源</div>';
+    return;
+  }
+  let idx = 0;
+  els.results.innerHTML = items.map((item) => resultRowHtml(item, idx++)).join('');
+  applyProbeBadges();
+  bindResultActions(items);
+}
+
+function renderEpisodeResults(items, label, rawCount) {
+  const groups = new Map();
+  for (const it of items) {
+    const g = groupNameOf(it.title);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  }
+  const entries = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  state.resultGroups = entries.map(([name, list]) => ({ name, items: list }));
+  state.activeGroup = null;
+  state.results = items;
+  state.probeMap.clear();
+  els.resultsInfo.textContent = label + '：原始 ' + rawCount + ' 条 → 筛选后 ' + items.length + ' 条（' + entries.length + ' 个字幕组）';
+  renderGroupFilter();
+  renderGroupedRows();
+  probeResults(items);
+}
+
+async function searchEpisodeOnMikan(show, season, ep) {
+  const label = (show ? show.name : '') + ' 第' + season + '季 第' + ep + '集';
+  els.resultsInfo.textContent = '正在模糊搜索：' + label + '…';
+  els.results.innerHTML = '<div class="empty">正在搜索…</div>';
+  els.groupFilter.classList.add('hidden');
+  updateRightEmpty();
+  const pad = String(ep).padStart(2, '0');
+  const names = [];
+  const zh = baseAnimeName(show && show.name);
+  const jp = baseAnimeName(show && show.original_name);
+  if (zh) names.push(zh);
+  if (jp && jp !== zh) names.push(jp);
+  const candidates = [];
+  for (const name of names) {
+    candidates.push(name, `${name} ${pad}`, `${name} ${ep}`, `${name} 第${ep}话`, `${name} 第${ep}話`);
+  }
+  const seen = new Set();
+  const uniq = candidates.filter((c) => !seen.has(c) && seen.add(c)).slice(0, 5);
+  const merged = new Map();
+  let lastErr = null;
+  for (let i = 0; i < uniq.length; i += 2) {
+    const batch = uniq.slice(i, i + 2);
+    const results = await Promise.allSettled(batch.map((c) => searchMikanLocal(c)));
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        for (const it of r.value) if (it.hash) merged.set(it.hash, it);
+      } else {
+        lastErr = r.reason && r.reason.message;
+      }
+    }
+  }
+  const rawItems = [...merged.values()];
+  if (!rawItems.length) {
+    els.resultsInfo.textContent = label + '：蜜柑没有搜到匹配资源';
+    els.results.innerHTML = '<div class="empty">没有搜到这一集' +
+      (lastErr ? '（' + escapeHtml(lastErr) + '）' : '，可以试试更完整的关键词') + '</div>';
+    return;
+  }
+  const items = filterEpisodeItems(rawItems, season, ep);
+  if (!items.length) {
+    els.resultsInfo.textContent = label + '：搜到 ' + rawItems.length + ' 条，但没有匹配第 ' + season + ' 季第 ' + ep + ' 集的资源';
+    els.results.innerHTML = '<div class="empty">搜到一些资源但没有匹配这一集（可能还没出，或标题不含季/集标识）</div>';
+    return;
+  }
+  renderEpisodeResults(items, label, rawItems.length);
+}
+
+function withWsTrackers(magnet) {
+  const sep = magnet.indexOf('?') >= 0 ? '&' : '?';
+  return magnet + WS_TRACKERS.map((t) => sep + 'tr=' + encodeURIComponent(t)).join('');
+}
+
+async function getStoreOpts() {
+  const opts = { strategy: 'sequential' };
+  try {
+    if (navigator.storage && navigator.storage.getDirectory) {
+      const dir = await navigator.storage.getDirectory();
+      opts.rootDir = dir; // OPFS 持久化缓存（http 环境下可用；file:// 下会被浏览器拒绝）
+      return opts;
+    }
+  } catch (e) { /* OPFS 不可用，退回内存存储 */ }
+  if (window.WebTorrent && window.WebTorrent.MemoryChunkStore) {
+    opts.store = window.WebTorrent.MemoryChunkStore;
+  }
+  return opts;
+}
+
+// ---------- Service Worker 原生渐进播放（http 环境下生效，file:// 不可用） ----------
+async function initServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  if (location.protocol.indexOf('http') !== 0) return null;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.min.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    if (reg.active && reg.active.state !== 'activated') {
+      await new Promise((resolve) => {
+        const w = reg.active;
+        const check = () => { if (w.state === 'activated') resolve(); };
+        w.addEventListener('statechange', check);
+        setTimeout(check, 3000);
+      });
+    }
+    return reg;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---------- WebRTC 可用性探测 ----------
+let probeClient = null;
+async function getProbeClient() {
+  if (!probeClient) {
+    probeClient = new WebTorrent();
+    // 探测用 WebRTC 版不支持 HTTP/UDP tracker，会不断报"Unsupported tracker protocol"，
+    // 属于正常现象，静音避免干扰
+    probeClient.on('warning', () => {});
+    probeClient.on('error', () => {});
+  }
+  return probeClient;
+}
+
+function probeOne(magnet) {
+  return new Promise(async (resolve) => {
+    let timer = null;
+    try {
+      const client = await getProbeClient();
+      const torrent = client.add(withWsTrackers(magnet), await getStoreOpts());
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { client.remove(torrent.infoHash, () => {}); } catch (e) { /* 忽略 */ }
+        resolve(ok);
+      };
+      timer = setTimeout(() => finish(false), PROBE_TIMEOUT);
+      torrent.once('ready', () => finish(true));
+      torrent.once('error', () => finish(false));
+    } catch (e) {
+      if (timer) clearTimeout(timer);
+      resolve(false);
+    }
+  });
+}
+
+function updateProbeBadge(hash, status) {
+  const el = document.querySelector('.probe-badge[data-hash="' + hash + '"]');
+  if (!el) return;
+  el.className = 'probe-badge ' + status;
+  el.textContent = status === 'checking' ? 'WebRTC 探测中…'
+    : status === 'ok' ? '✓ 有 WebRTC 节点' : '✗ 无 WebRTC 节点';
+}
+
+async function probeResults(items) {
+  if (!state.probeEnabled || state.probeRunning) return;
+  state.probeRunning = true;
+  els.probeInfo.textContent = '正在探测 WebRTC 可用性…';
+  try {
+    await getWebTorrent();
+    const slice = items.slice(0, PROBE_LIMIT);
+    // 磁力链本身带 WebSocket tracker 的直接标记为可用
+    slice.forEach((it) => {
+      if (it.hash && /wss?:\/\//i.test(it.magnet)) {
+        state.probeMap.set(it.hash, 'ok');
+        updateProbeBadge(it.hash, 'ok');
+      }
+    });
+    const targets = slice.filter((it) => it.hash && !state.probeMap.has(it.hash));
+    let done = 0;
+    const total = targets.length;
+    const run = async (list) => {
+      for (const item of list) {
+        state.probeMap.set(item.hash, 'checking');
+        updateProbeBadge(item.hash, 'checking');
+        const ok = await probeOne(item.magnet);
+        state.probeMap.set(item.hash, ok ? 'ok' : 'fail');
+        updateProbeBadge(item.hash, ok ? 'ok' : 'fail');
+        done++;
+        els.probeInfo.textContent = 'WebRTC 探测 ' + done + '/' + total + '…';
+      }
+    };
+    if (total) {
+      const chunk = Math.max(1, Math.ceil(total / PROBE_CONCURRENCY));
+      const batches = [];
+      for (let i = 0; i < total; i += chunk) batches.push(targets.slice(i, i + chunk));
+      await Promise.all(batches.map(run));
+    }
+    const okCount = [...state.probeMap.values()].filter((v) => v === 'ok').length;
+    els.probeInfo.textContent = total
+      ? '探测完成：' + okCount + ' 条有 WebRTC 节点（其余无，可用“服务器中转”重试）'
+      : '';
+  } catch (e) {
+    els.probeInfo.textContent = '探测失败：' + e.message;
+  } finally {
+    state.probeRunning = false;
+  }
+}
+
+// ---------- 播放主流程 ----------
+function clearWasmnetFallbackTimer() {
+  if (state.wasmnetFallbackTimer) {
+    clearTimeout(state.wasmnetFallbackTimer);
+    state.wasmnetFallbackTimer = null;
+  }
+}
+
+// ---------- 服务器 DHT 做种者发现（只在中转模式下使用） ----------
+function stopDhtDiscovery() {
+  if (state.dhtTimer) {
+    clearTimeout(state.dhtTimer);
+    state.dhtTimer = null;
+  }
+}
+
+async function pollDhtPeers() {
+  state.dhtTimer = null;
+  const t = state.torrent;
+  if (!t || !state.wasmnetMode || t.done || !t.infoHash) return;
+  if (state.dhtPeers.size > 300) return;
+  try {
+    const cfg = await getServerConfig();
+    const url = localProxyBase() + '/api/dht-peers?token=' +
+      encodeURIComponent((cfg.wasmnet && cfg.wasmnet.token) || '') +
+      '&infoHash=' + encodeURIComponent(t.infoHash);
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j && Array.isArray(j.peers)) {
+      let added = 0;
+      for (const addr of j.peers) {
+        if (!state.dhtPeers.has(addr)) {
+          state.dhtPeers.add(addr);
+          try { t.addPeer(addr); added++; } catch (e) { /* 忽略 */ }
+        }
+      }
+      if (added) console.log('[mikan] DHT 新增 ' + added + ' 个做种者（累计 ' + state.dhtPeers.size + '）');
+    }
+  } catch (e) {
+    /* DHT 不可用不阻塞播放 */
+  }
+  if (state.torrent && state.wasmnetMode && !state.torrent.done) {
+    state.dhtTimer = setTimeout(pollDhtPeers, 8000);
+  }
+}
+
+function startDhtDiscovery() {
+  stopDhtDiscovery();
+  if (!state.wasmnetMode || !state.torrent || state.torrent.done) return;
+  state.dhtPeers.clear();
+  // 等 infoHash 就绪后再开始（addPeer 需要它）
+  state.dhtTimer = setTimeout(pollDhtPeers, 1500);
+}
+
+function scheduleWasmnetFallback(magnet, ms) {
+  clearWasmnetFallbackTimer();
+  state.wasmnetFallbackTimer = setTimeout(() => {
+    state.wasmnetFallbackTimer = null;
+    maybeSwitchToWasmnet(magnet);
+  }, ms);
+}
+
+// WebRTC 一直连不上时，自动切到“服务器中转”模式重试
+async function maybeSwitchToWasmnet(magnet) {
+  if (state.wasmnetMode) return;
+  if (!state.torrent) return; // 用户已停止播放，不再自动切换
+  const t = state.torrent;
+  if (t && (t.numPeers > 0 || t.done)) return; // 已经连上了，不需要切换
+  if (!state.wasmnetRelayAlive) {
+    showNote('暂时连不上做种者，且服务器中转不可用（需在 NAS / 本机运行 server.mjs）');
+    return;
+  }
+  await startWasmnetPlayback(magnet);
+}
+
+async function startWasmnetPlayback(magnet) {
+  if (state.wasmnetMode) return;
+  state.wasmnetMode = true;
+  updateWasmnetStatus();
+  showNote('已切换到“服务器中转”模式：由服务器代为建立 TCP/UDP 连接（数据仅转发、不保存）');
+  await playMagnet(magnet);
+}
+
+async function playMagnet(magnet) {
+  const hm = /btih:([0-9a-f]{40})/i.exec(magnet || '');
+  if (hm) fetchPlayInfoDetail(hm[1].toLowerCase());
+  state.playingHash = hm ? hm[1].toLowerCase() : null;
+  refreshResultPlayingState();
+  const qItem = queueMatchForMagnet(magnet);
+  if (qItem) {
+    const used = await queuePlay(qItem);
+    if (used) return;
+  }
+  await startIndependentPlayback(magnet);
+}
+
+async function startIndependentPlayback(magnet) {
+  try {
+    clearWasmnetFallbackTimer();
+    state.lastMagnet = magnet;
+    await stopPlayback(true);
+    hideError(); hideNote();
+    showPlayer();
+    setLoading('正在初始化 P2P 客户端…');
+    if (state.wasmnetMode) {
+      if (!state.client || !state.client.__wasmnet) {
+        await getWebTorrentWasmnet();
+        if (state.client) { try { state.client.destroy(); } catch (e) { /* 忽略 */ } }
+        // 关闭 DHT/LSD：DHT 的 UDP 洪流会与中继的 TCP 数据抢同一个 WebSocket 连接，
+        // 导致元数据帧被拖死（实测开启 DHT 时真实做种者的元数据永远收不到）。
+        // tracker + PEX 已经能提供足够多的做种者。
+        state.client = new window.WebTorrentWasmnet({ dht: false, lsd: false, maxConns: 200 });
+        state.client.__wasmnet = true;
+      }
+    } else {
+      if (!state.client || state.client.__wasmnet) {
+        await getWebTorrent();
+        if (state.client) { try { state.client.destroy(); } catch (e) { /* 忽略 */ } }
+        state.client = new WebTorrent();
+      }
+    }
+    if (!state.sw) state.sw = await initServiceWorker();
+    if (state.sw) {
+      try { state.client.createServer({ controller: state.sw }); } catch (e) { /* 已创建或失败则忽略 */ }
+    }
+    let full = withWsTrackers(magnet);
+    // 中转模式下补充公共 HTTP/UDP tracker，扩大做种者发现范围（提高速度的关键之一）
+    if (state.wasmnetMode) full = mergeTrackers(full, FALLBACK_TRACKERS);
+    setLoading('正在连接做种者、获取种子信息…');
+    const opts = await getStoreOpts();
+    state.storeKind = opts.rootDir ? 'opfs' : 'memory';
+    state.peersSeen = 0;
+    state.wiresCount = 0;
+    state.lastWarning = null;
+    state.torrent = state.client.add(full, opts);
+    state.torrent.on('peer', () => { state.peersSeen++; });
+    state.torrent.on('wire', (wire, addr) => {
+      state.wiresCount++;
+      console.log('[mikan] wire connected:', addr || (wire && wire.remoteAddress) || '?');
+      wire.once('close', () => console.log('[mikan] wire closed:', addr || '?'));
+    });
+    state.torrent.on('ready', () => console.log('[mikan] torrent ready'));
+    state.torrent.on('done', () => console.log('[mikan] torrent done'));
+    state.torrent.on('warning', (w) => {
+      const msg = (w && w.message) || String(w || '');
+      state.lastWarning = msg;
+      console.warn('[mikan] tracker/网络警告:', msg);
+    });
+    state.torrent.on('error', (err) => {
+      if (!state.torrent) return;
+      showError('种子错误：' + (err && err.message));
+      setLoading(false);
+    });
+    state.torrent.on('noPeers', () => {
+      if (state.wasmnetMode) {
+        showNote('暂时没有可连接的做种者，请稍候或换个资源');
+      } else {
+        showNote('暂时没有可连接的做种者，正在尝试“服务器中转”…');
+        scheduleWasmnetFallback(magnet, 5000);
+      }
+    });
+    state.torrent.on('ready', onTorrentReady);
+    // 中转模式下让服务器 DHT 节点帮忙发现更多做种者（不落盘，只转发地址）
+    if (state.wasmnetMode) startDhtDiscovery();
+    state.torrent.on('done', () => {
+      stopDhtDiscovery();
+      showNote('下载完成！可以点“保存到本地磁盘”或“存入网页缓存”');
+    });
+    // WebRTC 模式下如果一段时间连不上，自动切换到服务器中转
+    if (!state.wasmnetMode) scheduleWasmnetFallback(magnet, 25000);
+    startPolling();
+  } catch (err) {
+    setLoading(false);
+    showError(err.message);
+  }
+}
+
+function onTorrentReady() {
+  const t = state.torrent;
+  if (!t) return;
+  els.playerTitle.textContent = t.name || '';
+  const videos = t.files.filter((f) => VIDEO_EXTS.includes(extOf(f.name)));
+  if (!videos.length) {
+    showError('这个种子中没有找到视频文件');
+    setLoading(false);
+    return;
+  }
+  renderFileChips(videos);
+  // 优先下载选中的视频文件开头
+  const best = videos.reduce((a, b) => (b.length > a.length ? b : a));
+  startFile(best);
+  fillPlayInfoFromTorrent();
+}
+
+function renderFileChips(videos) {
+  els.filePicker.innerHTML = '';
+  if (videos.length <= 1) { els.filePicker.classList.add('hidden'); return; }
+  els.filePicker.classList.remove('hidden');
+  videos.forEach((f) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'file-chip';
+    b.textContent = f.name + ' · ' + fmtSize(f.length);
+    b.addEventListener('click', () => startFile(f));
+    els.filePicker.appendChild(b);
+  });
+}
+
+function prioritizeFile(file) {
+  const t = state.torrent;
+  if (!t || !t.pieceLength) return;
+  try {
+    t.files.forEach((f) => f.deselect());
+    file.select();
+    if (typeof t.critical === 'function') {
+      const startPiece = Math.floor(file.offset / t.pieceLength);
+      const endPiece = Math.ceil((file.offset + file.length) / t.pieceLength);
+      const n = Math.min(endPiece - startPiece, Math.max(16, Math.ceil((64 * 1024 * 1024) / t.pieceLength)));
+      for (let i = 0; i < n; i++) t.critical(startPiece + i);
+    }
+  } catch (err) { /* 优先级设置失败不影响播放 */ }
+}
+
+async function startFile(file) {
+  state.currentFile = file;
+  els.filePicker.querySelectorAll('.file-chip').forEach((b) => {
+    b.classList.toggle('active', b.textContent.indexOf(file.name) === 0);
+  });
+  prioritizeFile(file);
+  hideNote();
+  const ext = extOf(file.name);
+  if (DIRECT_EXTS.includes(ext)) {
+    state.mode = 'direct';
+    let ok = false;
+    if (state.sw) ok = await startSwPlayback(file);
+    if (!ok) await startChunkedPlayback(file);
+  } else if (MSE_EXTS.includes(ext)) {
+    state.mode = 'mse';
+    const ok = await startMsePlayback(file);
+    if (!ok) {
+      state.mode = 'remux';
+      await startRemuxOrTranscode(file, state.lastMseError);
+    }
+  } else {
+    state.mode = 'remux';
+    await startRemuxOrTranscode(file, state.lastMseError);
+  }
+  fillPlayInfoFromTorrent();
+}
+
+// ---------- 方式一：mp4/webm 分片边下边播 ----------
+async function startSwPlayback(file) {
+  state.swPlayback = false;
+  state.playbackKind = 'direct';
+  try {
+    if (!state.client || !state.client._server) return false;
+    setLoading('正在连接视频流…');
+    file.streamTo(els.video);
+    state.swPlayback = true;
+    els.video.onloadedmetadata = () => setLoading(false);
+    els.video.onerror = () => {
+      if (!state.swPlayback) return;
+      state.swPlayback = false;
+      startChunkedPlayback(file);
+    };
+    safePlay();
+    startPolling();
+    return true;
+  } catch (e) {
+    state.swPlayback = false;
+    return false;
+  }
+}
+
+const REBUILD_CHECK_MS = 1500;
+const REBUILD_MIN_BYTES = 2 * 1024 * 1024;
+const REBUILD_LOW_BUFFER_S = 8;
+
+async function startChunkedPlayback(file) {
+  stopChunkedPlayback();
+  state.lastRebuildBytes = 0;
+  state.playbackKind = 'direct';
+  state.hasPlayed = false;
+  state.resumeTime = null;
+  state.priorityWindow = null;
+  state.resumeWaitStart = null;
+  els.actions.classList.add('hidden');
+  if (file.length > CHUNKED_PLAY_LIMIT_MB * 1024 * 1024) {
+    showNote('文件较大（' + fmtSize(file.length) + '），分片边下边播受内存限制不可用，将采用“下载完成后播放”');
+    await playAfterDownload(file);
+    return;
+  }
+  setLoading('正在缓冲片头，稍等几秒…');
+  els.video.removeAttribute('src');
+  els.video.load();
+
+  const stream = file.createReadStream();
+  state.chunks = [];
+  stream.on('data', (chunk) => {
+    state.chunks.push(new Uint8Array(chunk));
+  });
+  stream.on('error', (err) => {
+    if (state.mode !== 'direct') return;
+    showError('读取下载数据失败：' + (err && err.message));
+    setLoading(false);
+  });
+  stream.on('end', () => {
+    maybeRebuildBlob(true);
+  });
+
+  state.rebuildTimer = setInterval(() => maybeRebuildBlob(false), REBUILD_CHECK_MS);
+}
+
+function stopChunkedPlayback() {
+  if (state.rebuildTimer) { clearInterval(state.rebuildTimer); state.rebuildTimer = null; }
+  if (state.blobURL) { URL.revokeObjectURL(state.blobURL); state.blobURL = null; }
+  state.chunks = [];
+}
+
+function chunkBytes() {
+  return state.chunks.reduce((s, c) => s + c.length, 0);
+}
+
+function bufferIsLow() {
+  const v = els.video;
+  if (!v.buffered || !v.buffered.length) return true;
+  const end = v.buffered.end(v.buffered.length - 1);
+  return end - v.currentTime < REBUILD_LOW_BUFFER_S;
+}
+
+function videoStalled() {
+  const v = els.video;
+  if (!v.buffered || !v.buffered.length) return false;
+  const end = v.buffered.end(v.buffered.length - 1);
+  return !v.paused && v.currentTime >= end - 0.3;
+}
+
+function maybeRebuildBlob(final) {
+  if (!state.chunks.length || state.mode !== 'direct' || state.swPlayback) return;
+  const total = chunkBytes();
+  if (!final) {
+    const newBytes = total - state.lastRebuildBytes;
+    if (newBytes <= 0) return;
+    if (!bufferIsLow()) {
+      // 缓冲还够：只记录进度，不换源（避免闪烁）
+      state.lastRebuildBytes = total;
+      return;
+    }
+    if (newBytes < REBUILD_MIN_BYTES && !videoStalled()) return;
+  }
+  state.lastRebuildBytes = total;
+  rebuildBlob(final);
+}
+
+function rebuildBlob(final) {
+  if (!state.chunks.length || state.mode !== 'direct') return;
+  const wasPlaying = !els.video.paused && els.video.currentTime > 0;
+  // 换源瞬间的真实进度；等待缓冲期间跨多次重建保持不变
+  if (state.resumeTime == null) state.resumeTime = els.video.currentTime || 0;
+  const oldURL = state.blobURL;
+  const blob = new Blob(state.chunks, { type: 'video/mp4' });
+  state.blobURL = URL.createObjectURL(blob);
+  state.rebuilding = true;
+  setTimeout(() => { state.rebuilding = false; }, 30000); // 兜底，防止卡在换源状态
+  // 先挂上新源再撤销旧源，避免撤销瞬间误触发错误回退
+  els.video.src = state.blobURL;
+  if (oldURL) URL.revokeObjectURL(oldURL);
+  if (!final && wasPlaying) els.video.pause();
+  els.video.onloadedmetadata = () => restoreProgress();
+  els.video.onerror = () => {
+    if (state.rebuilding && state.hasPlayed) return; // 换源窗口内的瞬时错误不触发回退
+    if (state.mode === 'direct') {
+      // 片头不完整（moov 在文件尾部）或格式不支持
+      stopChunkedPlayback();
+      showNote('该文件无法分片播放（编码或结构不支持），改为下载完成后播放');
+      playAfterDownload(state.currentFile);
+    }
+  };
+}
+
+// 换源后恢复进度：精确恢复到原位置；若目标还没下载到，提示缓冲中并等待数据追上来
+function restoreProgress() {
+  const v = els.video;
+  const target = state.resumeTime != null ? state.resumeTime : (els.video.currentTime || 0);
+  // 防御：目标若超出已下载范围，先钳制到已下载边界
+  if (state.currentFile && v.duration && isFinite(v.duration) && v.duration > 0) {
+    const byteAt = (target / v.duration) * state.currentFile.length;
+    const downloaded = chunkBytes();
+    if (byteAt > downloaded) {
+      return waitForBuffer(v, Math.max(0, (downloaded / state.currentFile.length) * v.duration - 0.5));
+    }
+  }
+  if (v.seekable && v.seekable.length) {
+    const end = v.seekable.end(v.seekable.length - 1);
+    if (target <= 0.3 || target <= end + 0.05) {
+      if (target > 0.3) {
+        try {
+          v.currentTime = target;
+        } catch (e) {
+          // 设置失败说明还没就绪，转入等待缓冲
+          return waitForBuffer(v, target);
+        }
+      }
+      state.rebuilding = false;
+      state.resumeTime = null;
+      state.resumeWaitStart = null;
+      setLoading(false);
+      safePlay();
+      return;
+    }
+  }
+  waitForBuffer(v, target);
+}
+
+// 目标位置还没下载到：提示缓冲中；有新数据就重建源扩大可播范围，否则稍后重试
+function waitForBuffer(v, target) {
+  if (state.mode !== 'direct' || !state.torrent) {
+    state.rebuilding = false;
+    state.resumeTime = null;
+    state.resumeWaitStart = null;
+    return;
+  }
+  if (state.resumeWaitStart == null) state.resumeWaitStart = Date.now();
+  setLoading('正在缓冲…');
+  // 超时兜底：目标迟迟没下载到，退到最近可播位置继续，避免永久卡在 0
+  if (Date.now() - state.resumeWaitStart > 12000) {
+    let resume = 0;
+    if (state.currentFile && v.duration && isFinite(v.duration) && v.duration > 0) {
+      // 按已下载字节计算真实可播边界（不信任可能虚报的 seekable）
+      resume = Math.max(0, (chunkBytes() / state.currentFile.length) * v.duration - 0.5);
+    } else if (v.seekable && v.seekable.length) {
+      const end = v.seekable.end(v.seekable.length - 1);
+      resume = Math.max(0, end - 0.5);
+    }
+    try { v.currentTime = resume; } catch (e) { /* 忽略 */ }
+    state.rebuilding = false;
+    state.resumeTime = null;
+    state.resumeWaitStart = null;
+    setLoading(false);
+    safePlay();
+    return;
+  }
+  const total = chunkBytes();
+  if (total > state.lastRebuildBytes) {
+    state.lastRebuildBytes = total;
+    setTimeout(() => rebuildBlob(false), 50);
+  } else {
+    setTimeout(() => restoreProgress(), 400);
+  }
+}
+
+async function playAfterDownload(file) {
+  setLoading('等待完整下载…');
+  await new Promise((resolve) => {
+    const check = () => {
+      if (state.torrent && state.torrent.done) resolve();
+      else setTimeout(check, 1000);
+    };
+    check();
+  });
+  const blob = await fileToBlob(file, (p) => setLoading('正在缓冲 ' + Math.round(p * 100) + '% …'));
+  setLoading(false);
+  els.video.src = URL.createObjectURL(blob);
+  safePlay();
+}
+
+function fileToBlob(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    const s = file.createReadStream();
+    s.on('data', (c) => { chunks.push(c); total += c.length; if (onProgress) onProgress(total / file.length); });
+    s.on('end', () => resolve(new Blob(chunks)));
+    s.on('error', reject);
+  });
+}
+
+// ---------- 方式二：mkv 流式无损封装（MKV -> fMP4，MSE 边下边播，不重编码） ----------
+async function startMsePlayback(file) {
+  stopChunkedPlayback();
+  if (state.msePlayer) {
+    state.msePlayer.stop().catch(() => {});
+    state.msePlayer = null;
+  }
+  state.hasPlayed = false;
+  state.resumeTime = null;
+  state.playbackKind = 'mse';
+  els.actions.classList.add('hidden');
+  els.transcodePanel.classList.remove('hidden');
+  els.transcodeFill.style.width = '0%';
+  els.transcodeTime.textContent = '';
+  els.transcodeStatus.textContent = '正在解析 MKV 轨道…';
+  setLoading('正在解析 MKV 视频轨道…');
+  const player = new MikanMsePlayer();
+  state.msePlayer = player;
+  try {
+    await player.play(file, els.video, {
+      status: (s) => {
+        els.transcodeStatus.textContent = s;
+        if (!state.hasPlayed) setLoading(s);
+      },
+      progress: (p) => {
+        els.transcodeFill.style.width = Math.max(2, Math.round(p * 100)) + '%';
+        els.transcodeTime.textContent = Math.round(p * 100) + '%';
+      },
+      error: (err) => {
+        console.warn('[mse] 播放器错误:', err && err.message);
+        if (state.mode !== 'mse') return;
+        if (!state.hasPlayed) {
+          fallbackFromMse();
+        } else {
+          showError('播放中断：' + ((err && err.message) || err));
+          setLoading(false);
+        }
+      },
+    });
+    // 播放通道已建立：等浏览器解析出头帧后自动开播
+    els.video.onloadedmetadata = () => {
+      if (state.mode !== 'mse') return;
+      setLoading(false);
+      safePlay();
+    };
+    els.video.onerror = () => {
+      if (state.mode !== 'mse') return;
+      if (!state.hasPlayed) {
+        fallbackFromMse();
+      } else {
+        showError('该视频无法在当前浏览器解码播放');
+        setLoading(false);
+      }
+    };
+    // 防止 metadata 在 play() 返回前就已就绪导致错过事件
+    if (els.video.readyState >= 1) {
+      setLoading(false);
+      safePlay();
+    }
+    startPolling();
+    return true;
+  } catch (err) {
+    console.warn('[mse] 无法启动流式封装:', err && err.message);
+    state.lastMseError = (err && err.message) || String(err || '未知错误');
+    await player.stop().catch(() => {});
+    if (state.msePlayer === player) state.msePlayer = null;
+    hideError();
+    return false;
+  }
+}
+
+function fallbackFromMse() {
+  if (state.msePlayer) {
+    state.msePlayer.stop().catch(() => {});
+    state.msePlayer = null;
+  }
+  els.transcodePanel.classList.add('hidden');
+  hideError();
+  const f = state.currentFile;
+  state.mode = 'remux';
+  if (f) startRemuxOrTranscode(f, state.lastMseError);
+}
+
+// ---------- 方式三：mkv/HEVC 网页内转码（无损封装/ffmpeg 回退） ----------
+let transcodeWorker = null;
+function getTranscodeWorker() {
+  if (transcodeWorker) return Promise.resolve(transcodeWorker);
+  return (async () => {
+    // 把 ffmpeg-core 的 JS 直接拼进 blob Worker（file:// 下不能 importScripts 外部脚本），
+    // wasm 字节通过消息传入，绕开跨域与本地资源限制
+    let coreJs = null;
+    let coreWasm = null;
+    for (const u of FF_CORE_JS_CDNS) {
+      try {
+        const r = await fetch(u);
+        if (r.ok) { coreJs = await r.text(); break; }
+      } catch (e) { /* 下一个 CDN */ }
+    }
+    for (const u of FF_CORE_WASM_CDNS) {
+      try {
+        const r = await fetch(u);
+        if (r.ok) { coreWasm = new Uint8Array(await r.arrayBuffer()); break; }
+      } catch (e) { /* 下一个 CDN */ }
+    }
+    if (!coreJs || !coreWasm) throw new Error('ffmpeg 核心组件下载失败');
+
+    const protocol = `
+let Module = null;
+self.onmessage = async (e) => {
+  const { id, type } = e.data;
+  const respond = (payload, transfer) => self.postMessage(Object.assign({ id, type }, payload), transfer || []);
+  try {
+    if (type === 'init') {
+      Module = await self.createFFmpegCore({
+        wasmBinary: e.data.wasmBinary,
+        print: (m) => self.postMessage({ id, type: 'log', level: 'info', msg: String(m) }),
+        printErr: (m) => self.postMessage({ id, type: 'log', level: 'err', msg: String(m) }),
+      });
+      if (typeof Module.setProgress === 'function') {
+        Module.setProgress((p) => self.postMessage({ id, type: 'progress', data: p }));
+      }
+      if (typeof Module.setLogger === 'function') {
+        Module.setLogger((m) => self.postMessage({ id, type: 'log', level: 'info', msg: String((m && m.message) || m) }));
+      }
+      respond({ ok: true });
+    } else if (type === 'write') {
+      Module.FS.writeFile(e.data.path, e.data.data);
+      respond({ ok: true });
+    } else if (type === 'exec') {
+      if (typeof Module.setTimeout === 'function') Module.setTimeout(-1);
+      Module.exec(...e.data.args);
+      const exitCode = Module.ret;
+      if (typeof Module.reset === 'function') Module.reset();
+      respond({ ok: true, exitCode });
+    } else if (type === 'read') {
+      const d = Module.FS.readFile(e.data.path);
+      respond({ ok: true, data: d }, [d.buffer]);
+    } else if (type === 'delete') {
+      try { Module.FS.unlink(e.data.path); } catch (err) { /* 忽略 */ }
+      respond({ ok: true });
+    }
+  } catch (err) {
+    respond({ ok: false, error: String((err && err.stack) || err) });
+  }
+};
+`;
+    const worker = new Worker(URL.createObjectURL(new Blob([coreJs, protocol], { type: 'text/javascript' })));
+    const wrapper = { worker, nextId: 1, pending: new Map(), onLog: null, onProgress: null };
+    worker.onmessage = (e) => {
+      const { id, type, ok, error, data, msg, level } = e.data;
+      if (type === 'log') {
+        if (wrapper.onLog) wrapper.onLog(level, msg);
+        return;
+      }
+      if (type === 'progress') {
+        if (wrapper.onProgress) wrapper.onProgress(data);
+        return;
+      }
+      const p = wrapper.pending.get(id);
+      if (!p) return;
+      wrapper.pending.delete(id);
+      if (ok) p.resolve(e.data);
+      else p.reject(new Error(error));
+    };
+    worker.onerror = (e) => {
+      for (const p of wrapper.pending.values()) p.reject(new Error('转码 Worker 错误：' + e.message));
+      wrapper.pending.clear();
+    };
+    wrapper.call = (type, payload, transfer) => new Promise((resolve, reject) => {
+      const id = wrapper.nextId++;
+      wrapper.pending.set(id, { resolve, reject });
+      worker.postMessage(Object.assign({ id, type }, payload), transfer || []);
+    });
+    await wrapper.call('init', { wasmBinary: coreWasm }, [coreWasm.buffer]);
+    transcodeWorker = wrapper;
+    return wrapper;
+  })();
+}
+
+async function getFfmpegWorker() {
+  const worker = await getTranscodeWorker();
+  worker.onLog = (level, msg) => {
+    if (level === 'err' && /error/i.test(msg)) console.warn('[ffmpeg]', msg);
+  };
+  worker.onProgress = (p) => {
+    const prog = p && typeof p.progress === 'number' ? p.progress : null;
+    if (prog !== null) {
+      els.transcodeFill.style.width = Math.max(2, Math.round(prog * 100)) + '%';
+    }
+    if (p && p.time) els.transcodeTime.textContent = '已处理 ' + p.time;
+  };
+  state.ffmpeg = worker;
+  return worker;
+}
+
+async function startRemuxOrTranscode(file, mseErr) {
+  stopChunkedPlayback();
+  els.actions.classList.add('hidden');
+  if (file.length > TRANSCODE_LIMIT_MB * 1024 * 1024) {
+    const reason = mseErr ? '（' + mseErr + '）' : '';
+    showError('文件 ' + fmtSize(file.length) + ' 超过浏览器内处理上限 ' + TRANSCODE_LIMIT_MB + 'MB，且无法流式播放' + reason + '。可以点搜索结果里的“加入队列”下载到本地，再用本地播放器播放。');
+    els.actions.classList.remove('hidden');
+    setLoading(false);
+    return;
+  }
+  if (state.transcodeBusy) return;
+  state.transcodeBusy = true;
+  els.transcodePanel.classList.remove('hidden');
+  els.transcodeFill.style.width = '0%';
+  els.transcodeTime.textContent = '';
+  els.transcodeStatus.textContent = '加载处理引擎（首次约 30MB）…';
+  try {
+    const worker = await getFfmpegWorker();
+    const ext = extOf(file.name);
+    const inputName = 'input' + ext;
+    els.transcodeStatus.textContent = '等待下载数据…';
+    const blob = await fileToBlob(file, (p) => {
+      els.transcodeStatus.textContent = '正在下载 ' + Math.round(p * 100) + '% …';
+    });
+    const data = new Uint8Array(await blob.arrayBuffer());
+    els.transcodeStatus.textContent = '正在读取到处理引擎…';
+    await worker.call('write', { path: inputName, data }, [data.buffer]);
+    els.transcodeFill.style.width = '3%';
+
+    // 阶段一：无损封装（-c copy，不重新编码，快且画质无损）
+    els.transcodeStatus.textContent = '正在无损封装为 MP4（不重新编码）…';
+    try {
+      await worker.call('exec', { args: [
+        '-y', '-i', inputName,
+        '-map', '0',
+        '-c', 'copy',
+        '-movflags', '+faststart',
+        '-f', 'mp4',
+        'output.mp4',
+      ] });
+      const out = await worker.call('read', { path: 'output.mp4' });
+      const outBlob = new Blob([out.data], { type: 'video/mp4' });
+      setLoading(false);
+      state.playbackKind = 'remux';
+      els.video.src = URL.createObjectURL(outBlob);
+      state.fellBack = false;
+      els.video.onerror = () => {
+        if (state.fellBack || state.mode !== 'remux') return;
+        state.fellBack = true;
+        showNote('无损封装后的格式浏览器不支持，自动改用转码（H.264）…');
+        runTranscodeFallback(file, worker);
+      };
+      safePlay();
+      els.actions.classList.remove('hidden');
+      els.btnSave.onclick = () => saveBlob(outBlob, file.name.replace(/\.[^.]+$/, '') + '.mp4');
+      els.btnCache.onclick = async () => {
+        await saveToCache(file.name.replace(/\.[^.]+$/, '') + '.mp4', outBlob);
+        refreshCache();
+      };
+      showNote('已无损封装为 MP4（未重新编码，画质无损失），可直接播放');
+      return;
+    } catch (e) {
+      showNote('无损封装不适用（' + e.message + '），自动改用转码…');
+      await runTranscodeFallback(file, worker);
+    }
+  } catch (err) {
+    showError('处理失败：' + err.message);
+    setLoading(false);
+  } finally {
+    state.transcodeBusy = false;
+  }
+}
+
+async function runTranscodeFallback(file, worker) {
+  els.transcodeFill.style.width = '2%';
+  els.transcodeStatus.textContent = '转码中…（H.264，请耐心等待）';
+  try {
+    await worker.call('exec', { args: [
+      '-y', '-i', 'input' + extOf(file.name),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '128k',
+      '-movflags', '+faststart', '-f', 'mp4',
+      'output.mp4',
+    ] });
+    els.transcodeStatus.textContent = '转码完成，准备播放…';
+    const out = await worker.call('read', { path: 'output.mp4' });
+    const outBlob = new Blob([out.data], { type: 'video/mp4' });
+    setLoading(false);
+    state.playbackKind = 'transcode';
+    els.video.src = URL.createObjectURL(outBlob);
+    safePlay();
+    els.actions.classList.remove('hidden');
+    els.btnSave.onclick = () => saveBlob(outBlob, file.name.replace(/\.[^.]+$/, '') + '.mp4');
+    els.btnCache.onclick = async () => {
+      await saveToCache(file.name.replace(/\.[^.]+$/, '') + '.mp4', outBlob);
+      refreshCache();
+    };
+    showNote('已转码为 MP4（H.264），画质略有损失');
+  } catch (err) {
+    showError('转码失败：' + err.message);
+    setLoading(false);
+  }
+}
+
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---------- 网页本地缓存（OPFS） ----------
+async function opfsRoot() {
+  if (navigator.storage && navigator.storage.getDirectory) {
+    try { return await navigator.storage.getDirectory(); } catch (e) { return null; }
+  }
+  return null;
+}
+async function saveToCache(name, blob) {
+  const root = await opfsRoot();
+  if (!root) { showError('当前浏览器不支持网页缓存（需要较新的 Chrome/Edge）'); return; }
+  try {
+    const dir = await root.getDirectoryHandle('mikan-cache', { create: true });
+    const handle = await dir.getFileHandle(safeName(name), { create: true });
+    const w = await handle.createWritable();
+    await w.write(blob);
+    await w.close();
+  } catch (e) { showError('写入缓存失败：' + e.message); }
+}
+async function readCacheEntries() {
+  const root = await opfsRoot();
+  if (!root) return [];
+  try {
+    const dir = await root.getDirectoryHandle('mikan-cache', { create: true });
+    const out = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === 'file') {
+        const f = await handle.getFile();
+        out.push({ name, size: f.size, handle });
+      }
+    }
+    return out;
+  } catch { return []; }
+}
+async function refreshCache() {
+  state.cacheEntries = await readCacheEntries();
+  if (!state.cacheEntries.length) { els.cacheSection.classList.add('hidden'); return; }
+  els.cacheSection.classList.remove('hidden');
+  els.cacheList.innerHTML = state.cacheEntries.map((e, i) => `
+    <div class="cache-row">
+      <span class="nm" title="${escapeHtml(e.name)}">${escapeHtml(e.name)} · ${fmtSize(e.size)}</span>
+      <span style="display:flex;gap:8px">
+        <button class="icon-btn" data-cplay="${i}" type="button">播放</button>
+        <button class="icon-btn" data-csave="${i}" type="button">保存</button>
+        <button class="icon-btn" data-cdel="${i}" type="button">删除</button>
+      </span>
+    </div>
+  `).join('');
+  els.cacheList.querySelectorAll('[data-cplay]').forEach((b) => b.addEventListener('click', async () => {
+    const e = state.cacheEntries[Number(b.dataset.cplay)];
+    await stopPlayback(true);
+    showPlayer();
+    setLoading('正在读取缓存…');
+    const blob = await e.handle.getFile();
+    setLoading(false);
+    els.video.src = URL.createObjectURL(blob);
+    safePlay();
+  }));
+  els.cacheList.querySelectorAll('[data-csave]').forEach((b) => b.addEventListener('click', () => {
+    const e = state.cacheEntries[Number(b.dataset.csave)];
+    e.handle.getFile().then((f) => saveBlob(f, e.name));
+  }));
+  els.cacheList.querySelectorAll('[data-cdel]').forEach((b) => b.addEventListener('click', async () => {
+    const e = state.cacheEntries[Number(b.dataset.cdel)];
+    const root = await opfsRoot();
+    const dir = await root.getDirectoryHandle('mikan-cache');
+    await dir.removeEntry(e.name);
+    refreshCache();
+  }));
+}
+function safeName(name) {
+  return String(name).replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+}
+
+// ---------- 状态轮询 ----------
+function startPolling() {
+  stopPolling();
+  state.pollTimer = setInterval(() => {
+    const t = state.torrent;
+    if (t) {
+      const pct = (t.progress || 0) * 100;
+      els.statProgress.textContent = Math.round(pct) + '%';
+      els.statSpeed.textContent = fmtSize(t.downloadSpeed) + '/s';
+      els.statPeers.textContent = t.numPeers + ' 个连接';
+      const f = state.currentFile;
+      els.statSize.textContent = f
+        ? fmtSize(t.downloaded) + ' / ' + fmtSize(t.length)
+        : fmtSize(t.downloaded);
+    }
+    updatePlaybackPriority();
+    updateMonitor();
+  }, 800);
+}
+function stopPolling() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
+
+// ---------- 监控信息面板 ----------
+function monitorRow(k, v) {
+  return '<div class="mr"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
+}
+function playbackKindText() {
+  if (state.playbackKind === 'mse') return '流式无损封装（MKV→MP4，不重编码）';
+  if (state.playbackKind === 'remux') return '无损封装播放（未转码，画质无损失）';
+  if (state.playbackKind === 'transcode') return '转码播放（H.264）';
+  if (state.swPlayback) return '原生直放（Service Worker 渐进播放）';
+  if (state.mode === 'direct') return '分片缓冲直放';
+  if (state.mode === 'remux' && state.transcodeBusy) {
+    return els.transcodeStatus.textContent.indexOf('转码') >= 0 ? '转码中…' : '无损封装中…';
+  }
+  return '—';
+}
+function updateMonitor() {
+  if (els.monitorOverlay.classList.contains('hidden')) return;
+  const t = state.torrent;
+  const f = state.currentFile;
+  const v = els.video;
+  let bitrate = '—';
+  let duration = '—';
+  if (v && f && v.duration && isFinite(v.duration) && v.duration > 0) {
+    duration = fmtDuration(v.duration);
+    bitrate = fmtSize((f.length / v.duration) * 8) + '/s（按文件大小/时长估算）';
+  }
+  const cacheLoc = state.storeKind === 'opfs'
+    ? 'OPFS 持久缓存'
+    : state.storeKind === 'memory'
+      ? '浏览器内存'
+      : '—';
+  const lines = [
+    monitorRow('连接方式', state.wasmnetMode ? '服务器中转（TCP/UDP，经服务器转发）' : '浏览器 WebRTC'),
+    monitorRow('中转连接', state.wasmnetRelayConnected ? '已连接' : '未连接'),
+    monitorRow('发现做种者', state.peersSeen + ' 个'),
+    monitorRow('已连接数', state.wiresCount + ' 条'),
+    monitorRow('文件', f ? (f.name ? (f.name.length > 42 ? f.name.slice(0, 42) + '…' : f.name) : '—') : '—'),
+    monitorRow('大小/时长', f ? fmtSize(f.length) + ' · ' + duration : '—'),
+    monitorRow('平均码率', bitrate),
+    monitorRow('播放方式', playbackKindText()),
+    monitorRow('下载', t ? fmtSize(t.downloadSpeed) + '/s · ' + Math.round((t.progress || 0) * 100) + '% · ' + t.numPeers + ' 连接' : '—'),
+    monitorRow('缓存位置', cacheLoc),
+    monitorRow('种子', t ? t.infoHash.slice(0, 16) + '…' : '—'),
+    monitorRow('最近警告', state.lastWarning ? (state.lastWarning.length > 48 ? state.lastWarning.slice(0, 48) + '…' : state.lastWarning) : '—'),
+    monitorRow('处理状态', els.transcodePanel.classList.contains('hidden') ? '—' : els.transcodeStatus.textContent),
+  ];
+  const pct = t ? Math.max(0, Math.min(100, Math.round((t.progress || 0) * 100))) : 0;
+  lines.push('<div class="monitor-progress"><div style="width:' + pct + '%"></div></div>');
+  els.monitorOverlay.innerHTML = lines.join('');
+}
+
+// ---------- 停止 / 清理 ----------
+async function stopPlayback(silent) {
+  clearWasmnetFallbackTimer();
+  stopDhtDiscovery();
+  stopPolling();
+  stopChunkedPlayback();
+  if (state.msePlayer) {
+    state.msePlayer.stop().catch(() => {});
+    state.msePlayer = null;
+  }
+  const t = state.torrent;
+  state.torrent = null;
+  state.currentFile = null;
+  state.mode = null;
+  state.playbackKind = null;
+  state.storeKind = null;
+  state.priorityWindow = null;
+  state.resumeWaitStart = null;
+  if (state.ffmpeg) {
+    try { state.ffmpeg.worker.terminate(); } catch (e) { /* 忽略 */ }
+    state.ffmpeg = null;
+    transcodeWorker = null;
+  }
+  if (state.client && t) {
+    try { state.client.remove(t.infoHash, () => {}); } catch (e) { /* 忽略 */ }
+  }
+  els.video.pause();
+  els.video.removeAttribute('src');
+  els.video.load();
+  els.transcodePanel.classList.add('hidden');
+  els.actions.classList.add('hidden');
+  els.filePicker.classList.add('hidden');
+  els.statProgress.textContent = '0%';
+  els.statSpeed.textContent = '0 KB/s';
+  els.statPeers.textContent = '0 个连接';
+  els.statSize.textContent = '';
+  if (!silent) {
+    hideError(); hideNote();
+    state.playingHash = null;
+    refreshResultPlayingState();
+  }
+}
+
+els.btnStop.addEventListener('click', async () => {
+  await stopPlayback(false);
+  state.playInfo = null;
+  renderPlaySidebar();
+  els.playerPanel.classList.add('hidden');
+});
+function applyPlayerFixMode(mode) {
+  const fixed = mode !== 'scroll';
+  if (els.playerPanel) els.playerPanel.classList.toggle('scroll-mode', !fixed);
+  if (els.btnPlayerFix) els.btnPlayerFix.textContent = fixed ? '固定播放器' : '随页面滚动';
+  try { localStorage.setItem('p2p_player_fix_mode', fixed ? 'fixed' : 'scroll'); } catch (e) { /* 忽略 */ }
+}
+els.btnPlayerFix.addEventListener('click', () => {
+  const fixed = !els.playerPanel.classList.contains('scroll-mode');
+  applyPlayerFixMode(fixed ? 'scroll' : 'fixed');
+});
+
+function showPlayer() {
+  els.playerPanel.classList.remove('hidden');
+}
+
+els.btnSave.addEventListener('click', async () => {
+  const f = state.currentFile;
+  if (!f) return;
+  setLoading('正在生成文件…');
+  try {
+    const blob = await fileToBlob(f);
+    saveBlob(blob, f.name);
+  } catch (e) {
+    showError('保存失败：' + e.message);
+  }
+  setLoading(false);
+});
+
+els.btnCache.addEventListener('click', async () => {
+  const f = state.currentFile;
+  if (!f) return;
+  if (!state.torrent || !state.torrent.done) {
+    showNote('请等待下载完成后再存入缓存');
+    return;
+  }
+  setLoading('正在写入网页缓存…');
+  const blob = await fileToBlob(f);
+  await saveToCache(f.name, blob);
+  setLoading(false);
+  refreshCache();
+  showNote('已存入网页缓存（可在页面下方直接播放，无需重新下载）');
+});
+els.video.addEventListener('playing', () => {
+  state.hasPlayed = true;
+  setLoading(false);
+});
+els.video.addEventListener('waiting', () => {
+  if (!els.video.paused && (state.mode === 'direct' || state.mode === 'mse')) setLoading('正在缓冲…');
+});
+
+// ---------- 拖动进度条时，把下载优先级推到对应位置 ----------
+let seekPushTimer = null;
+// 持续保证“播放进度附近”的分片优先下载：窗口跟随播放位置前进
+function updatePlaybackPriority() {
+  if (!state.swPlayback) return; // 只有 SW 原生播放才能跳段下载；分片模式需保持顺序下载
+  const t = state.torrent;
+  const f = state.currentFile;
+  const v = els.video;
+  if (!t || !f || !v) return;
+  if (!t.pieceLength || !v.duration || !isFinite(v.duration) || v.duration <= 0) return;
+  const ratio = v.currentTime / v.duration;
+  if (!(ratio > 0 && ratio < 1)) return;
+  const totalPieces = Math.max(1, Math.ceil(t.length / t.pieceLength));
+  const byteOffset = f.offset + ratio * f.length;
+  const startPiece = Math.min(totalPieces - 1, Math.floor(byteOffset / t.pieceLength));
+  const bytesPerSec = f.length / v.duration;
+  // 窗口：当前位置起约 30 秒，最少 8MB，最多 80 个分片
+  const windowBytes = Math.max(8 * 1024 * 1024, bytesPerSec * 30);
+  const endPiece = Math.min(totalPieces - 1, startPiece + 80, Math.ceil((byteOffset + windowBytes) / t.pieceLength));
+  if (endPiece < startPiece) return;
+  const key = startPiece + '-' + endPiece;
+  if (state.priorityWindow === key) return; // 窗口没变就不重复标记
+  state.priorityWindow = key;
+  try {
+    if (typeof t.critical === 'function') t.critical(startPiece, endPiece);
+    if (typeof t.select === 'function') t.select(startPiece, endPiece, 1);
+  } catch (e) { /* 优先级设置失败不影响播放 */ }
+}
+
+function pushSeekPriority() {
+  if (!state.swPlayback) return; // 同上：分片模式拖动不推远段优先级，避免饿死顺序流
+  const t = state.torrent;
+  const f = state.currentFile;
+  const v = els.video;
+  if (!t || !f || !v) return;
+  if (!t.pieceLength || !v.duration || !isFinite(v.duration) || v.duration <= 0) return;
+  const ratio = v.currentTime / v.duration;
+  if (!(ratio > 0 && ratio < 1)) return;
+  const totalPieces = Math.max(1, Math.ceil(t.length / t.pieceLength));
+  const byteOffset = f.offset + ratio * f.length;
+  const startPiece = Math.min(totalPieces - 1, Math.floor(byteOffset / t.pieceLength));
+  const bytesPerSec = f.length / v.duration;
+  // 优先级窗口：目标位置起约 30 秒，最少 4MB，最多 60 个分片
+  const windowBytes = Math.max(4 * 1024 * 1024, bytesPerSec * 30);
+  const endPiece = Math.min(totalPieces - 1, startPiece + 60, Math.ceil((byteOffset + windowBytes) / t.pieceLength));
+  if (endPiece < startPiece) return;
+  try {
+    if (typeof t.critical === 'function') t.critical(startPiece, endPiece);
+    if (typeof t.select === 'function') t.select(startPiece, endPiece, 1);
+  } catch (e) { /* 优先级设置失败不影响播放 */ }
+}
+
+// 分片模式：拖动进度条时把目标钳制在“已下载”边界内，避免跳到没数据的位置导致回 0
+function clampSeekToDownloaded() {
+  if (state.mode === 'mse') {
+    const v = els.video;
+    if (!v || !v.duration || !isFinite(v.duration) || v.duration <= 0) return;
+    const t = v.currentTime;
+    if (t <= 0.5) return;
+    const frontier = (state.msePlayer ? state.msePlayer.getBufferedEnd() : 0) - 0.5;
+    if (frontier > 0.3 && t > frontier + 0.1) {
+      try { v.currentTime = Math.max(0, frontier); } catch (e) { /* 忽略 */ }
+    }
+    return;
+  }
+  if (state.swPlayback || state.mode !== 'direct') return;
+  const v = els.video;
+  const f = state.currentFile;
+  if (!f || !v.duration || !isFinite(v.duration) || v.duration <= 0) return;
+  const t = v.currentTime;
+  if (t <= 0.5) return;
+  const downloaded = chunkBytes();
+  if ((t / v.duration) * f.length > downloaded) {
+    const frontier = Math.max(0, (downloaded / f.length) * v.duration - 0.5);
+    try { v.currentTime = frontier; } catch (e) { /* 忽略 */ }
+  }
+}
+els.video.addEventListener('seeking', () => {
+  clampSeekToDownloaded();
+  if (seekPushTimer) return; // 拖拽过程中合并为一次
+  seekPushTimer = setTimeout(() => {
+    seekPushTimer = null;
+    pushSeekPriority();
+  }, 300);
+});
+els.video.addEventListener('seeked', () => {
+  clampSeekToDownloaded();
+  if (seekPushTimer) { clearTimeout(seekPushTimer); seekPushTimer = null; }
+  pushSeekPriority();
+});
+els.video.addEventListener('loadedmetadata', () => {
+  updateMonitor();
+});
+els.video.addEventListener('timeupdate', () => {
+  const t = state.torrent;
+  const cur = els.video.currentTime;
+  if (!t || !cur || !isFinite(cur)) return;
+  const q = state.queue.find((x) => x.torrent === t);
+  if (q) {
+    q.playTime = cur;
+    scheduleQueueSave();
+  }
+});
+
+els.btnMonitor.addEventListener('click', () => {
+  const show = els.monitorOverlay.classList.contains('hidden');
+  els.monitorOverlay.classList.toggle('hidden', !show);
+  els.btnMonitor.textContent = show ? '收起监控' : '监控信息';
+  if (show) updateMonitor();
+});
+els.btnClickPlay.addEventListener('click', () => {
+  els.btnClickPlay.classList.add('hidden');
+  safePlay();
+});
+
+// ---------- 初始化 ----------
+function updateTmdbKeyStatus() {
+  const k = (localStorage.getItem('p2p_tmdb_key') || '').trim();
+  const b = (localStorage.getItem('p2p_tmdb_base') || '').trim();
+  const parts = [];
+  parts.push(k
+    ? 'API Key 已设置（' + k.slice(0, 4) + '…' + k.slice(-4) + '）'
+    : 'API Key 未设置');
+  if (b) {
+    try { parts.push('地址：' + new URL(b).host); } catch (e) { parts.push('地址：' + b); }
+  } else {
+    parts.push('地址：官方（api.themoviedb.org）');
+  }
+  els.tmdbKeyStatus.textContent = parts.join(' · ');
+}
+function openSettings() {
+  els.settingsOverlay.classList.remove('hidden');
+  updateWasmnetStatus();
+  updateProxyStatus();
+  updateTmdbKeyStatus();
+}
+function closeSettings() {
+  els.settingsOverlay.classList.add('hidden');
+}
+els.btnSettings.addEventListener('click', openSettings);
+els.btnSettingsClose.addEventListener('click', closeSettings);
+els.settingsOverlay.addEventListener('click', (e) => {
+  if (e.target === els.settingsOverlay) closeSettings();
+});
+els.btnQueue.addEventListener('click', () => {
+  els.queueOverlay.classList.toggle('hidden');
+  renderQueue();
+});
+els.btnQueueClose.addEventListener('click', () => {
+  els.queueOverlay.classList.add('hidden');
+});
+els.queueOverlay.addEventListener('click', (e) => {
+  if (e.target === els.queueOverlay) els.queueOverlay.classList.add('hidden');
+});
+els.btnQueueClear.addEventListener('click', clearFinishedQueue);
+els.btnSearchSeason.addEventListener('click', () => {
+  if (!state.tmdbCurrentShow) return;
+  searchSeasonOnMikan(state.tmdbCurrentShow, state.tmdbCurrentSeason);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!els.settingsOverlay.classList.contains('hidden')) closeSettings();
+  if (!els.queueOverlay.classList.contains('hidden')) els.queueOverlay.classList.add('hidden');
+});
+
+const savedTmdbKey = (localStorage.getItem('p2p_tmdb_key') || '').trim();
+if (savedTmdbKey) els.tmdbKeyInput.value = savedTmdbKey;
+let savedTmdbBase = (localStorage.getItem('p2p_tmdb_base') || '').trim();
+// 清理已废弃的镜像地址，避免旧设置继续生效
+const OLD_TMDB_HOST = ['youmi', 'family', '.top'].join('');
+if (savedTmdbBase.indexOf(OLD_TMDB_HOST) >= 0) {
+  localStorage.removeItem('p2p_tmdb_base');
+  savedTmdbBase = '';
+}
+if (savedTmdbBase) els.tmdbBaseInput.value = savedTmdbBase;
+els.tmdbKeyInput.addEventListener('change', () => {
+  const k = els.tmdbKeyInput.value.trim();
+  if (k) localStorage.setItem('p2p_tmdb_key', k);
+  else localStorage.removeItem('p2p_tmdb_key');
+  updateTmdbKeyStatus();
+});
+els.tmdbBaseInput.addEventListener('change', () => {
+  const b = els.tmdbBaseInput.value.trim();
+  if (b) localStorage.setItem('p2p_tmdb_base', b);
+  else localStorage.removeItem('p2p_tmdb_base');
+  updateTmdbKeyStatus();
+});
+const savedMikanBase = mikanBase();
+if (savedMikanBase) els.mikanBaseInput.value = savedMikanBase;
+els.mikanBaseInput.addEventListener('change', () => {
+  const b = els.mikanBaseInput.value.trim();
+  if (b) localStorage.setItem('p2p_mikan_base', b);
+  else localStorage.removeItem('p2p_mikan_base');
+});
+const savedRelayUrl = relayOverride();
+if (savedRelayUrl) els.relayUrlInput.value = savedRelayUrl;
+els.relayUrlInput.addEventListener('change', () => {
+  const v = els.relayUrlInput.value.trim();
+  if (v) localStorage.setItem('p2p_relay_url', v);
+  else localStorage.removeItem('p2p_relay_url');
+  serverConfigCache = null;
+});
+let savedQueueConcurrency = 1;
+try { savedQueueConcurrency = parseInt(localStorage.getItem('p2p_queue_concurrency') || '1', 10) || 1; } catch (e) { /* 忽略 */ }
+els.queueConcurrencyInput.value = Math.min(5, Math.max(1, savedQueueConcurrency));
+els.queueConcurrencyInput.addEventListener('change', () => {
+  let v = parseInt(els.queueConcurrencyInput.value, 10);
+  if (!isFinite(v)) v = 1;
+  v = Math.min(5, Math.max(1, v));
+  els.queueConcurrencyInput.value = v;
+  localStorage.setItem('p2p_queue_concurrency', String(v));
+  scheduleQueue();
+});
+
+els.probeToggle.addEventListener('change', () => {
+  state.probeEnabled = els.probeToggle.checked;
+  if (state.probeEnabled && state.results.length && !state.probeRunning) probeResults(state.results);
+});
+els.probeRecheck.addEventListener('click', () => {
+  if (state.probeRunning) return;
+  state.probeMap.clear();
+  state.results.forEach((it) => { if (it.hash) updateProbeBadge(it.hash, 'checking'); });
+  probeResults(state.results);
+});
+const savedProxy = (localStorage.getItem('p2p_proxy_prefix') || '').trim();
+if (savedProxy) els.proxyInput.value = savedProxy;
+els.proxyInput.addEventListener('change', () => {
+  localStorage.setItem('p2p_proxy_prefix', els.proxyInput.value.trim());
+});
+els.btnWasmnet.addEventListener('click', () => {
+  if (!state.wasmnetRelayAlive) {
+    showError('服务器中转不可用：请确认 server.mjs 已在 NAS / 本机运行');
+    return;
+  }
+  state.wasmnetMode = !state.wasmnetMode;
+  updateWasmnetStatus();
+  showNote(state.wasmnetMode
+    ? '已启用“服务器中转”：播放时将经服务器建立 TCP/UDP 连接（数据仅转发、不保存）'
+    : '已关闭“服务器中转”，将使用浏览器 WebRTC 直连');
+});
+els.btnTrackerDiag.addEventListener('click', () => runTrackerDiagnose());
+els.btnRelayTest.addEventListener('click', () => {
+  relayProbed = false;
+  testRelay();
+});
+window.addEventListener('mikan-wasmnet', (e) => {
+  const d = e.detail || {};
+  if (d.status === 'connected') {
+    state.wasmnetRelayConnected = true;
+    state.wasmnetError = null;
+    updateWasmnetStatus();
+  } else if (d.status === 'error') {
+    state.wasmnetRelayConnected = false;
+    state.wasmnetError = (d.error || '未知错误');
+    state.lastWarning = '中继连接失败：' + (d.error || '未知错误');
+    serverConfigCache = null;
+    relayProbed = false;
+    console.warn('[mikan] wasmnet relay error:', d.error);
+    updateWasmnetStatus();
+  }
+});
+refreshCache().catch(() => {});
+restoreQueue();
+renderPlaySidebar();
+updateRightEmpty();
+let savedPlayerFixMode = 'fixed';
+try { savedPlayerFixMode = localStorage.getItem('p2p_player_fix_mode') || 'fixed'; } catch (e) { /* 忽略 */ }
+applyPlayerFixMode(savedPlayerFixMode);
+checkLocalProxy().then(() => probeRelay()).catch(() => {});
+els.searchInput.focus();
+window.addEventListener('pagehide', () => saveQueueState());
+
+// 供无头浏览器自检：?probe=1 时加载库并写入标题
+if (location.search.indexOf('probe=1') >= 0) {
+  (async () => {
+    try {
+      await getWebTorrent();
+      await getWebTorrentWasmnet();
+      await getTranscodeWorker();
+      document.title = 'PROBE_OK wt=' + (window.WebTorrent && WebTorrent.VERSION ? WebTorrent.VERSION : '1')
+        + ' wtn=' + (window.WebTorrentWasmnet && WebTorrentWasmnet.VERSION ? WebTorrentWasmnet.VERSION : '1')
+        + ' ff=1';
+    } catch (e) {
+      document.title = 'PROBE_FAIL ' + e.message;
+    }
+  })();
+}
+</script>
+</body>
+</html>
