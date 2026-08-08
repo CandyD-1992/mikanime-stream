@@ -371,8 +371,9 @@
           for (let i = 0; i < ranges.length; i++) {
             const start = ranges.start(i);
             const end = ranges.end(i);
-            if (end <= keepFrom + 0.5) {
-              sb.remove(start, end);
+            // 播放点之前的旧缓冲：按时间点部分裁剪，而不是要求整块都在前面
+            if (start + 0.5 < keepFrom) {
+              sb.remove(start, Math.min(end, keepFrom));
               removed = true;
               break;
             }

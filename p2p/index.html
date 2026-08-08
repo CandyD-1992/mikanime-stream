@@ -335,6 +335,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
       <div class="player-head">
         <h2 id="player-title"></h2>
         <div style="display:flex;gap:8px;flex-shrink:0">
+          <button id="btn-queue-current" class="ghost hidden" type="button" title="把当前播放的资源加入下载队列">加入队列</button>
           <button id="btn-player-fix" class="ghost" type="button" title="切换播放器固定在屏幕上或随页面滚动">固定播放器</button>
           <button id="btn-monitor" class="ghost" type="button">监控信息</button>
           <button id="btn-stop" class="ghost" type="button">停止</button>
@@ -466,6 +467,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
             <span class="muted">并行任务数（1-5）：</span>
             <input id="queue-concurrency-input" type="number" min="1" max="5" step="1" value="1" style="max-width:90px">
           </div>
+          <div class="settings-row">
+            <span class="muted">网页缓存上限（GB，超了自动删最旧）：</span>
+            <input id="cache-limit-input" type="number" min="1" max="20" step="1" value="3" style="max-width:90px">
+          </div>
         </div>
         <div class="settings-section">
           <h4>诊断 tracker</h4>
@@ -596,11 +601,13 @@ const els = {
   settingsOverlay: $('settings-overlay'),
   btnSettingsClose: $('btn-settings-close'),
   btnQueue: $('btn-queue'),
+  btnQueueCurrent: $('btn-queue-current'),
   queueOverlay: $('queue-overlay'),
   btnQueueClose: $('btn-queue-close'),
   queueList: $('queue-list'),
   btnQueueClear: $('btn-queue-clear'),
   queueConcurrencyInput: $('queue-concurrency-input'),
+  cacheLimitInput: $('cache-limit-input'),
   tmdbSection: $('tmdb-section'),
   tmdbInfo: $('tmdb-info'),
   tmdbList: $('tmdb-list'),
@@ -1378,6 +1385,13 @@ function refreshResultPlayingState() {
     if (row) row.classList.toggle('playing', isPlaying);
   });
 }
+function updateQueueCurrentButton() {
+  if (!els.btnQueueCurrent) return;
+  const h = state.playingHash;
+  const inQueue = h && state.queue.some((q) => q.hash === h);
+  const show = !!h && !inQueue;
+  els.btnQueueCurrent.classList.toggle('hidden', !show);
+}
 
 function renderResults() {
   const items = state.results;
@@ -1400,8 +1414,69 @@ function renderResults() {
 // ---------- 下载队列 ----------
 function enqueueItem(item) {
   if (!item || !item.magnet) return;
-  if (item.hash && state.queue.some((q) => q.hash && q.hash === item.hash)) {
+  const m = /btih:([0-9a-f]{40})/i.exec(item.magnet || '');
+  const wantHash = String((item.hash || (m && m[1])) || '').toLowerCase();
+  if (wantHash && state.queue.some((q) => q.hash && String(q.hash).toLowerCase() === wantHash)) {
     showNote('该资源已在下载队列中');
+    return;
+  }
+  // 如果当前正在播放同一个资源，直接复用播放器的下载进度，不再另开一个下载
+  const t = state.torrent;
+  const playingHash = t && t.infoHash ? t.infoHash.toLowerCase() : null;
+  if (wantHash && playingHash === wantHash && t) {
+    const videos = t.files ? t.files.filter((ff) => VIDEO_EXTS.includes(extOf(ff.name))) : [];
+    const f = state.currentFile || (videos[0] || null);
+    const entry = {
+      id: 'q-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      magnet: item.magnet,
+      title: item.title || t.name || '未命名资源',
+      hash: wantHash,
+      status: 'downloading',
+      progress: f && typeof f.progress === 'number' ? f.progress : (t.progress || 0),
+      speed: 0,
+      downloaded: f && typeof f.downloaded === 'number' ? f.downloaded : (t.downloaded || 0),
+      total: f ? f.length : (t.length || 0),
+      error: null,
+      torrent: t,
+      file: f,
+      cacheName: null,
+      addedAt: Date.now(),
+      playTime: 0,
+      group: item.group || groupNameOf(item.title || ''),
+      date: item.date || '',
+      image: item.image || null,
+      fileName: f ? f.name : (item.title || ''),
+      detailUrl: item.detailUrl || '',
+      videoFiles: videos.map((ff) => ({ name: ff.name, length: ff.length })),
+      fileIndex: 0,
+      fileReady: !!f,
+      managedByPlayer: true,
+    };
+    state.queue.push(entry);
+    entry._adoptTimer = setInterval(() => {
+      const ff = entry.file || (t.files && t.files.find((x) => VIDEO_EXTS.includes(extOf(x.name))));
+      if (!ff) return;
+      entry.progress = typeof ff.progress === 'number' ? ff.progress : (t.progress || 0);
+      entry.speed = t.downloadSpeed || 0;
+      entry.downloaded = typeof ff.downloaded === 'number' ? ff.downloaded : (t.downloaded || 0);
+      renderQueue();
+    }, 1000);
+    const finish = () => {
+      if (entry._adoptTimer) { clearInterval(entry._adoptTimer); entry._adoptTimer = null; }
+      if (entry.status === 'done' || entry.status === 'error') return;
+      finalizeAdoptedQueueItem(entry, t).catch((err) => {
+        entry.status = 'error';
+        entry.error = (err && err.message) || String(err);
+        renderQueue();
+        scheduleQueueSave();
+      });
+    };
+    if (f) f.once('done', finish);
+    t.once('done', finish);
+    if (f && (f.done || t.done)) finish();
+    renderQueue();
+    scheduleQueueSave();
+    showNote('已加入队列：正在复用当前播放的下载进度');
     return;
   }
   state.queue.push({
@@ -1432,6 +1507,42 @@ function enqueueItem(item) {
   scheduleQueue();
 }
 
+async function finalizeAdoptedQueueItem(entry, t) {
+  const f = entry.file || (t.files && t.files.find((x) => VIDEO_EXTS.includes(extOf(x.name))));
+  if (!f) {
+    entry.progress = 1;
+    entry.status = 'done';
+    renderQueue();
+    scheduleQueueSave();
+    return;
+  }
+  entry.progress = 1;
+  entry.downloaded = f.length;
+  entry.total = f.length;
+  entry.fileName = f.name;
+  renderQueue();
+  const cacheName = safeName(f.name);
+  const ok = await streamFileToCacheQuiet(f, cacheName);
+  if (ok) {
+    entry.cachedFiles = [cacheName];
+    entry.cacheName = cacheName;
+    await enforceCacheLimit(queueCacheLimitBytes());
+    try {
+      const root = await opfsRoot();
+      const dir = await root.getDirectoryHandle('mikan-cache');
+      const h = await dir.getFileHandle(cacheName);
+      const ff = await h.getFile();
+      saveBlob(ff, f.name);
+    } catch (e) { /* 保存失败不影响缓存 */ }
+  } else {
+    const blob = await fileToBlob(f);
+    saveBlob(blob, f.name);
+  }
+  entry.status = 'done';
+  renderQueue();
+  scheduleQueueSave();
+}
+
 function queueStatusText(it) {
   switch (it.status) {
     case 'waiting': return '等待中';
@@ -1442,7 +1553,10 @@ function queueStatusText(it) {
       return '下载中 ' + fmtSize(it.speed) + '/s · ' + Math.round((it.progress || 0) * 100) + '%' + part;
     }
     case 'paused': return '已暂停' + (it.torrent ? '（保留下载进度）' : '');
-    case 'done': return '已完成' + (it.cacheName ? '，已存入网页缓存，可离线播放' : '，已触发浏览器保存到本地');
+    case 'done': {
+      const hasCache = it.cacheName || (it.cachedFiles && it.cachedFiles.length);
+      return '已完成' + (hasCache ? '，已存入网页缓存，可离线播放' : '，已触发浏览器保存到本地');
+    }
     case 'error': return '失败：' + (it.error || '未知错误');
     default: return it.status;
   }
@@ -1453,6 +1567,7 @@ function renderQueue() {
   els.btnQueue.textContent = state.queue.length ? '队列 (' + state.queue.length + ')' : '队列';
   scheduleQueueSave();
   refreshResultEnqueueButtons();
+  updateQueueCurrentButton();
   if (els.queueOverlay.classList.contains('hidden')) return;
   els.queueList.innerHTML = state.queue.length
     ? state.queue.map((it, i) => `
@@ -1467,12 +1582,12 @@ function renderQueue() {
         <div style="display:flex;gap:8px;flex-shrink:0">
           <button class="icon-btn" data-qplay="${i}" type="button" title="使用队列进度在播放器里播放">播放</button>
           ${it.status === 'waiting' || it.status === 'downloading'
-            ? '<button class="icon-btn" data-qpause="${i}" type="button">暂停</button>'
+            ? `<button class="icon-btn" data-qpause="${i}" type="button">暂停</button>`
             : it.status === 'paused'
-              ? '<button class="icon-btn" data-qpause="${i}" type="button">继续</button>'
+              ? `<button class="icon-btn" data-qpause="${i}" type="button">继续</button>`
               : ''}
           ${it.status === 'error'
-            ? '<button class="icon-btn" data-qretry="${i}" type="button" title="重新开始下载">重试</button>'
+            ? `<button class="icon-btn" data-qretry="${i}" type="button" title="重新开始下载">重试</button>`
             : ''}
           <button class="icon-btn" data-qdel="${i}" type="button">移除</button>
         </div>
@@ -1669,24 +1784,36 @@ async function runQueueItem(item) {
       item.downloaded = baseDone + (file.length || 0);
       item.progress = item.total ? item.downloaded / item.total : 1;
       renderQueue();
-      const blob = await fileToBlob(file, (p) => {
+      // 每个文件都写入网页缓存，下载完成后可直接离线播放，不用重新下载
+      const cacheName = safeName(file.name);
+      const cacheOk = await streamFileToCacheQuiet(file, cacheName, (p) => {
         item.downloaded = baseDone + p * (file.length || 0);
         item.progress = item.total ? item.downloaded / item.total : 0;
         renderQueue();
       });
-      saveBlob(blob, file.name);
-      // 单文件任务才自动写入网页缓存；合集文件多，避免占满 OPFS
-      if (files.length === 1) {
-        const cacheName = safeName(file.name);
-        const cacheOk = await saveToCacheQuiet(cacheName, blob);
-        item.cacheName = cacheOk ? cacheName : null;
+      if (cacheOk) {
+        if (!item.cachedFiles) item.cachedFiles = [];
+        item.cachedFiles.push(cacheName);
+        if (files.length === 1) item.cacheName = cacheName;
+        await enforceCacheLimit(queueCacheLimitBytes());
+        // 从磁盘缓存文件直接触发浏览器保存（File 对象按需读盘，不再整文件进内存）
+        try {
+          const root = await opfsRoot();
+          const dir = await root.getDirectoryHandle('mikan-cache');
+          const h = await dir.getFileHandle(cacheName);
+          const f = await h.getFile();
+          saveBlob(f, file.name);
+        } catch (e) { /* 保存失败不影响缓存 */ }
+      } else {
+        // 缓存写失败时退回内存方式保存（仅异常情况）
+        const blob = await fileToBlob(file);
+        saveBlob(blob, file.name);
       }
     }
 
     item.progress = 1;
     item.speed = 0;
     item.downloaded = item.total;
-    if (files.length > 1) item.cacheName = null;
     item.status = 'done';
   } catch (err) {
     item.status = 'error';
@@ -1710,10 +1837,11 @@ async function runQueueItem(item) {
 function removeQueueItem(id) {
   const it = state.queue.find((q) => q.id === id);
   if (!it) return;
-  if (it.torrent) {
+  if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
+  if (it.torrent && !it.managedByPlayer) {
     try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
-    it.torrent = null;
   }
+  it.torrent = null;
   state.queue = state.queue.filter((q) => q.id !== id);
   renderQueue();
   scheduleQueueSave();
@@ -1722,10 +1850,11 @@ function removeQueueItem(id) {
 function clearFinishedQueue() {
   for (const it of state.queue) {
     if (it.status === 'done' || it.status === 'error' || it.status === 'paused') {
-      if (it.torrent) {
+      if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
+      if (it.torrent && !it.managedByPlayer) {
         try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
-        it.torrent = null;
       }
+      it.torrent = null;
     }
   }
   state.queue = state.queue.filter((q) => q.status !== 'done' && q.status !== 'error' && q.status !== 'paused');
@@ -1740,6 +1869,10 @@ function togglePauseQueueItem(id) {
     it.status = it.torrent ? 'downloading' : 'waiting';
     if (it.torrent) {
       try { it.torrent.resume(); } catch (e) { /* 忽略 */ }
+      const target = it.file || (it.torrent.files && it.torrent.files[0]);
+      if (target) {
+        try { target.select(); } catch (e) { /* 忽略 */ }
+      }
     }
     renderQueue();
     scheduleQueue();
@@ -1747,6 +1880,8 @@ function togglePauseQueueItem(id) {
     it.status = 'paused';
     if (it.torrent) {
       try { it.torrent.pause(); } catch (e) { /* 忽略 */ }
+      // WebTorrent 的 pause 只挡新连接，这里再取消选择文件，让已连接的做种者也停止请求
+      try { it.torrent.files.forEach((f) => f.deselect()); } catch (e) { /* 忽略 */ }
     }
     renderQueue();
   }
@@ -1756,10 +1891,12 @@ function togglePauseQueueItem(id) {
 function retryQueueItem(id) {
   const it = state.queue.find((q) => q.id === id);
   if (!it) return;
-  if (it.torrent) {
+  if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
+  if (it.torrent && !it.managedByPlayer) {
     try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
-    it.torrent = null;
   }
+  it.torrent = null;
+  it.managedByPlayer = false;
   it.status = 'waiting';
   it.error = null;
   it.progress = 0;
@@ -1778,6 +1915,7 @@ async function queuePlay(item) {
   if (item.hash) {
     state.playingHash = item.hash;
     refreshResultPlayingState();
+    updateQueueCurrentButton();
   }
   setPlayInfo({
     magnet: item.magnet,
@@ -1788,11 +1926,15 @@ async function queuePlay(item) {
     image: item.image || '',
     detailUrl: item.detailUrl || '',
   });
-  // 已完成：优先读网页缓存（OPFS）里的本地文件
-  if (item.status === 'done' && item.cacheName) {
+  // 已完成：优先读网页缓存（OPFS）里的本地文件，不用重新下载
+  const cachedNames = (item.cachedFiles && item.cachedFiles.length)
+    ? item.cachedFiles
+    : (item.cacheName ? [item.cacheName] : []);
+  if (item.status === 'done' && cachedNames.length) {
     const entries = await readCacheEntries();
-    const e = entries.find((x) => x.name === item.cacheName);
-    if (e) {
+    const cached = cachedNames.map((n) => entries.find((x) => x.name === n)).filter(Boolean);
+    if (cached.length) {
+      const e = cached[0];
       await stopPlayback(true);
       showPlayer();
       setLoading('正在读取本地缓存…');
@@ -1809,6 +1951,7 @@ async function queuePlay(item) {
         } else {
           safePlay();
         }
+        if (cached.length > 1) renderCachedFileChips(cached);
         if (!item.detailUrl && item.hash) fetchPlayInfoDetail(item.hash);
       } catch (err) {
         setLoading(false);
@@ -1882,7 +2025,7 @@ function saveQueueState() {
       magnet: it.magnet,
       title: it.title,
       hash: it.hash || null,
-      status: it.status === 'done' ? 'done' : 'paused',
+      status: it.status,
       progress: it.status === 'done' ? 1 : (it.progress || 0),
       downloaded: it.downloaded || 0,
       total: it.total || 0,
@@ -1897,6 +2040,7 @@ function saveQueueState() {
       detailUrl: it.detailUrl || '',
       videoFiles: it.videoFiles || null,
       fileIndex: it.fileIndex || 0,
+      cachedFiles: it.cachedFiles || null,
     }));
     localStorage.setItem('p2p_queue', JSON.stringify(data));
   } catch (e) { /* 忽略 */ }
@@ -1917,13 +2061,19 @@ function restoreQueue() {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return;
     for (const it of arr) {
-      const done = it.status === 'done';
+      const savedStatus = it.status;
+      const done = savedStatus === 'done';
+      let status;
+      if (done) status = 'done';
+      else if (savedStatus === 'error') status = 'error';
+      else if (savedStatus === 'paused') status = 'paused';
+      else status = 'waiting'; // 下载中/等待中的任务刷新后自动继续
       state.queue.push({
         id: it.id || ('q-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
         magnet: it.magnet || '',
         title: it.title || '未命名资源',
         hash: it.hash || null,
-        status: done ? 'done' : 'paused',
+        status,
         progress: done ? 1 : (it.progress || 0),
         speed: 0,
         downloaded: it.downloaded || 0,
@@ -1941,10 +2091,12 @@ function restoreQueue() {
         detailUrl: it.detailUrl || '',
         videoFiles: it.videoFiles || null,
         fileIndex: it.fileIndex || 0,
+        cachedFiles: it.cachedFiles || null,
       });
     }
   } catch (e) { /* 忽略 */ }
   renderQueue();
+  scheduleQueue();
 }
 
 async function saveToCacheQuiet(name, blob) {
@@ -1958,6 +2110,66 @@ async function saveToCacheQuiet(name, blob) {
     await w.close();
     return true;
   } catch { return false; }
+}
+
+// 从 WebTorrent 的磁盘存储（OPFS 分片）直接流式复制到缓存文件，避免整文件进内存
+async function streamFileToCacheQuiet(file, name, onProgress) {
+  const root = await opfsRoot();
+  if (!root || !file || typeof file.createReadStream !== 'function') return false;
+  try {
+    const dir = await root.getDirectoryHandle('mikan-cache', { create: true });
+    const handle = await dir.getFileHandle(name, { create: true });
+    const w = await handle.createWritable();
+    try {
+      let done = 0;
+      for await (const chunk of file.createReadStream()) {
+        await w.write(chunk);
+        done += chunk.length;
+        if (onProgress && file.length) onProgress(done / file.length);
+      }
+    } finally {
+      await w.close();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function queueCacheLimitBytes() {
+  try {
+    const gb = parseFloat(localStorage.getItem('p2p_cache_limit_gb') || '3');
+    const v = isFinite(gb) ? Math.min(20, Math.max(1, gb)) : 3;
+    return v * 1024 * 1024 * 1024;
+  } catch {
+    return 3 * 1024 * 1024 * 1024;
+  }
+}
+
+// 缓存总量超过上限时，按修改时间从旧到新自动删除，防止把浏览器存储撑爆
+async function enforceCacheLimit(limitBytes) {
+  const root = await opfsRoot();
+  if (!root) return;
+  try {
+    const dir = await root.getDirectoryHandle('mikan-cache', { create: true });
+    const entries = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== 'file') continue;
+      const f = await handle.getFile();
+      entries.push({ name, size: f.size, lastModified: f.lastModified || 0 });
+    }
+    let total = entries.reduce((s, e) => s + e.size, 0);
+    if (total <= limitBytes) return;
+    entries.sort((a, b) => a.lastModified - b.lastModified);
+    for (const e of entries) {
+      if (total <= limitBytes) break;
+      try {
+        await dir.removeEntry(e.name);
+        total -= e.size;
+      } catch (err) { /* 忽略 */ }
+    }
+    refreshCache();
+  } catch (e) { /* 清理失败不影响主流程 */ }
 }
 
 // ---------- TMDB 番剧搜索与选集 ----------
@@ -2678,6 +2890,7 @@ async function playMagnet(magnet) {
   if (hm) fetchPlayInfoDetail(hm[1].toLowerCase());
   state.playingHash = hm ? hm[1].toLowerCase() : null;
   refreshResultPlayingState();
+  updateQueueCurrentButton();
   const qItem = queueMatchForMagnet(magnet);
   if (qItem) {
     const used = await queuePlay(qItem);
@@ -2796,6 +3009,28 @@ function renderFileChips(videos) {
     b.addEventListener('click', () => startFile(f));
     els.filePicker.appendChild(b);
   });
+}
+
+function renderCachedFileChips(entries) {
+  if (!entries || entries.length <= 1) { els.filePicker.classList.add('hidden'); return; }
+  els.filePicker.classList.remove('hidden');
+  els.filePicker.innerHTML = entries.map((e, i) => `
+    <button class="file-chip" data-cacheidx="${i}" type="button">${escapeHtml(e.name)} · ${fmtSize(e.size)}</button>
+  `).join('');
+  els.filePicker.querySelectorAll('[data-cacheidx]').forEach((b) => b.addEventListener('click', async () => {
+    const e = entries[Number(b.dataset.cacheidx)];
+    if (!e) return;
+    try {
+      setLoading('正在读取缓存…');
+      const blob = await e.handle.getFile();
+      setLoading(false);
+      els.video.src = URL.createObjectURL(blob);
+      safePlay();
+    } catch (err) {
+      setLoading(false);
+      showError('读取缓存失败：' + err.message);
+    }
+  }));
 }
 
 function prioritizeFile(file) {
@@ -3570,6 +3805,7 @@ async function stopPlayback(silent) {
     hideError(); hideNote();
     state.playingHash = null;
     refreshResultPlayingState();
+    updateQueueCurrentButton();
   }
 }
 
@@ -3777,6 +4013,22 @@ els.btnQueue.addEventListener('click', () => {
   els.queueOverlay.classList.toggle('hidden');
   renderQueue();
 });
+els.btnQueueCurrent.addEventListener('click', () => {
+  const magnet = state.lastMagnet || (state.playInfo && state.playInfo.magnet) || '';
+  const h = state.playingHash;
+  if (!magnet || !h) return;
+  const t = state.torrent;
+  const p = state.playInfo || {};
+  enqueueItem({
+    magnet,
+    title: (t && t.name) || p.title || '当前播放',
+    hash: h,
+    date: p.date || '',
+    group: p.group || '',
+    image: p.image || '',
+  });
+  updateQueueCurrentButton();
+});
 els.btnQueueClose.addEventListener('click', () => {
   els.queueOverlay.classList.add('hidden');
 });
@@ -3842,6 +4094,17 @@ els.queueConcurrencyInput.addEventListener('change', () => {
   localStorage.setItem('p2p_queue_concurrency', String(v));
   scheduleQueue();
 });
+let savedCacheLimitGb = 3;
+try { savedCacheLimitGb = parseFloat(localStorage.getItem('p2p_cache_limit_gb') || '3') || 3; } catch (e) { /* 忽略 */ }
+els.cacheLimitInput.value = Math.min(20, Math.max(1, savedCacheLimitGb));
+els.cacheLimitInput.addEventListener('change', () => {
+  let v = parseFloat(els.cacheLimitInput.value);
+  if (!isFinite(v)) v = 3;
+  v = Math.min(20, Math.max(1, v));
+  els.cacheLimitInput.value = v;
+  localStorage.setItem('p2p_cache_limit_gb', String(v));
+  enforceCacheLimit(queueCacheLimitBytes());
+});
 
 els.probeToggle.addEventListener('change', () => {
   state.probeEnabled = els.probeToggle.checked;
@@ -3897,6 +4160,7 @@ updateRightEmpty();
 let savedPlayerFixMode = 'fixed';
 try { savedPlayerFixMode = localStorage.getItem('p2p_player_fix_mode') || 'fixed'; } catch (e) { /* 忽略 */ }
 applyPlayerFixMode(savedPlayerFixMode);
+updateQueueCurrentButton();
 checkLocalProxy().then(() => probeRelay()).catch(() => {});
 els.searchInput.focus();
 window.addEventListener('pagehide', () => saveQueueState());
