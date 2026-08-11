@@ -290,12 +290,6 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
   background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
 }
 .proxy-row input:focus { border-color: var(--accent); }
-.proxy-row textarea {
-  flex: 1; min-width: 260px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line);
-  background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
-  resize: vertical; font-family: inherit; line-height: 1.6;
-}
-.proxy-row textarea:focus { border-color: var(--accent); }
 .cache-section { margin-top: 26px; }
 .cache-section h3 { font-size: 15px; margin-bottom: 10px; color: var(--muted); }
 .cache-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
@@ -461,19 +455,6 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
             <button id="btn-relay-test" class="icon-btn" type="button">测试中转（延迟/速度）</button>
           </div>
           <span id="relay-test-status" class="muted diag-text"></span>
-          <div class="proxy-row">
-            <span class="muted">多中继列表（每行一个 IP/域名，可选端口；自动补协议和 /wasmnet）：</span>
-            <textarea id="relay-list-input" rows="3" placeholder="192.168.3.21:3000&#10;hk.example.com&#10;1.2.3.4"></textarea>
-          </div>
-          <div class="proxy-row">
-            <span class="muted">多中继共用 Token（选填；各中继部署统一设置同一个 WASMNET_TOKEN 时填写）：</span>
-            <input id="relay-token-input" type="text" placeholder="所有中继统一配置的 WASMNET_TOKEN">
-          </div>
-          <div class="settings-row">
-            <button id="btn-relay-test-all" class="ghost" type="button">测速全部中继</button>
-            <button id="btn-relay-use-fastest" class="ghost hidden" type="button">使用最快中继</button>
-            <span id="relay-list-status" class="muted diag-text"></span>
-          </div>
         </div>
         <div class="settings-section">
           <h4>下载队列</h4>
@@ -605,9 +586,6 @@ const els = {
   relayUrlInput: $('relay-url-input'),
   btnRelayTest: $('btn-relay-test'),
   relayTestStatus: $('relay-test-status'),
-  relayListInput: $('relay-list-input'), btnRelayTestAll: $('btn-relay-test-all'),
-  btnRelayUseFastest: $('btn-relay-use-fastest'), relayListStatus: $('relay-list-status'),
-  relayTokenInput: $('relay-token-input'),
   btnTrackerDiag: $('btn-tracker-diag'),
   trackerDiag: $('tracker-diag'),
   btnSettings: $('btn-settings'),
@@ -1086,111 +1064,6 @@ async function testRelay() {
   updateWasmnetStatus();
 }
 
-// ---------- 多中继：测速全部并选用最快 ----------
-let fastestRelay = null;
-
-function getRelayList() {
-  try {
-    return (localStorage.getItem('p2p_relay_list') || '')
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter((s) => /^wss?:\/\//i.test(s) || /^[A-Za-z0-9.\-:[\]]+$/.test(s))
-      .map(relayEntryToUrl);
-  } catch (e) {
-    return [];
-  }
-}
-
-function getRelayToken() {
-  try {
-    return (localStorage.getItem('p2p_relay_token') || '').trim();
-  } catch (e) {
-    return '';
-  }
-}
-
-// 只填 IP/域名时自动补全：协议跟随页面（https→wss，http→ws），
-// 端口没写就沿用当前页面端口（如 12348），路径固定 /wasmnet。
-// 如果设置了“多中继共用 Token”，会自动拼到地址上；
-// 完整 URL（含 token）会原样使用。
-function relayEntryToUrl(entry) {
-  let s = String(entry || '').trim();
-  if (/^wss?:\/\//i.test(s)) return s;
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  let port = location.port;
-  if (!port) port = proto === 'wss:' ? '443' : '80';
-  if (!/:\d+$/.test(s)) s += ':' + port;
-  let url = proto + '//' + s + '/wasmnet';
-  const token = getRelayToken();
-  if (token && !/[?&]token=/.test(url)) {
-    url += '?token=' + encodeURIComponent(token);
-  }
-  return url;
-}
-
-function prettyRelayUrl(url) {
-  try {
-    const u = new URL(url);
-    return u.host + u.pathname;
-  } catch (e) {
-    return url;
-  }
-}
-
-async function testAllRelays() {
-  const list = getRelayList();
-  const urls = [];
-  try { urls.push(await buildRelayUrl()); } catch (e) { /* 当前默认地址可能不可用，忽略 */ }
-  for (const u of list) urls.push(u);
-  const unique = [...new Set(urls)];
-  if (!unique.length) {
-    els.relayListStatus.textContent = '没有可测的中继地址（请在“多中继列表”里填写）';
-    return;
-  }
-  els.relayListStatus.textContent = '正在测速 ' + unique.length + ' 个中继…';
-  const cand = RELAY_TEST_HOSTS[0];
-  const results = [];
-  for (const url of unique) {
-    const r = await relayTestOnce(url, cand, { maxBytes: 2 * 1024 * 1024, maxDataMs: 12000, timeoutMs: 20000 });
-    const label = prettyRelayUrl(url);
-    results.push({ url, label, ...r });
-    els.relayListStatus.textContent = label + '：'
-      + (r.err ? '失败 ' + r.err.message : Math.round(r.connectMs) + ' ms / ' + (r.speed / 1e6).toFixed(2) + ' Mbps');
-  }
-  const ok = results.filter((x) => !x.err && x.speed > 0).sort((a, b) => b.speed - a.speed);
-  if (!ok.length) {
-    fastestRelay = null;
-    els.btnRelayUseFastest.classList.add('hidden');
-    els.relayListStatus.textContent = '全部中继测速失败：' + results.map((x) => x.label).join('、') + '（可稍后重试）';
-    return;
-  }
-  fastestRelay = ok[0];
-  els.btnRelayUseFastest.classList.remove('hidden');
-  els.relayListStatus.textContent = results.map((x) => {
-    const star = x === ok[0] ? '★ ' : '';
-    return star + x.label + '：' + (x.err ? '失败' : Math.round(x.connectMs) + ' ms / ' + (x.speed / 1e6).toFixed(2) + ' Mbps');
-  }).join('\n');
-}
-
-async function useFastestRelay() {
-  if (!fastestRelay) return;
-  const url = fastestRelay.url;
-  try { localStorage.setItem('p2p_relay_url', url); } catch (e) { /* 忽略 */ }
-  try { if (els.relayUrlInput) els.relayUrlInput.value = url; } catch (e) { /* 忽略 */ }
-  // 强制中继客户端重连；已建立的连接会在报错后自动改用新地址
-  try {
-    if (window.__wasmnetRelay && window.__wasmnetRelay.resetClient) {
-      await window.__wasmnetRelay.resetClient();
-    }
-  } catch (e) { /* 忽略 */ }
-  serverConfigCache = null;
-  relayProbed = false;
-  els.btnRelayUseFastest.classList.add('hidden');
-  els.relayListStatus.textContent = '已切换：' + prettyRelayUrl(url)
-    + '（' + (fastestRelay.speed / 1e6).toFixed(2) + ' Mbps）。现有连接会自动重连，新任务直接使用该中继。';
-  showNote('已切换到最快中继：' + prettyRelayUrl(url));
-  updateWasmnetStatus();
-}
 async function probeRelay() {
   if (relayProbed || !state.wasmnetRelayAlive) return;
   await testRelay();
@@ -4263,14 +4136,6 @@ els.relayUrlInput.addEventListener('change', () => {
   else localStorage.removeItem('p2p_relay_url');
   serverConfigCache = null;
 });
-els.relayListInput.value = (localStorage.getItem('p2p_relay_list') || '');
-els.relayListInput.addEventListener('change', () => {
-  try { localStorage.setItem('p2p_relay_list', els.relayListInput.value); } catch (e) { /* 忽略 */ }
-});
-els.relayTokenInput.value = getRelayToken();
-els.relayTokenInput.addEventListener('change', () => {
-  try { localStorage.setItem('p2p_relay_token', els.relayTokenInput.value.trim()); } catch (e) { /* 忽略 */ }
-});
 let savedQueueConcurrency = 1;
 try { savedQueueConcurrency = parseInt(localStorage.getItem('p2p_queue_concurrency') || '1', 10) || 1; } catch (e) { /* 忽略 */ }
 els.queueConcurrencyInput.value = Math.min(5, Math.max(1, savedQueueConcurrency));
@@ -4315,8 +4180,6 @@ els.btnRelayTest.addEventListener('click', () => {
   relayProbed = false;
   testRelay();
 });
-els.btnRelayTestAll.addEventListener('click', () => testAllRelays());
-els.btnRelayUseFastest.addEventListener('click', () => useFastestRelay());
 window.addEventListener('mikan-wasmnet', (e) => {
   const d = e.detail || {};
   if (d.status === 'connected') {
