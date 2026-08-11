@@ -116,3 +116,8 @@ export async function resetClient() {
   connecting = null
   configCache = null
 }
+
+// 暴露给页面：切换中继地址后强制重连（页面在“多中继”设置里使用）
+if (typeof window !== 'undefined') {
+  window.__wasmnetRelay = { resetClient, getClient, getConfig }
+}

@@ -46,8 +46,12 @@
       this._discardAudio = false;
       this._droppedAudio = null;
       this._keepBehindSec = 90;   // 播放进度往前保留多少秒的缓冲
+      this._maxAheadSec = 45;     // 封装最多超前播放进度多少秒（防止 SourceBuffer 写满）
       this._evictTimer = null;
       this._bitrateWindow = [];   // [时间戳, 该片段码率 bps]，用于监控面板显示实时码率
+      this._subTracks = new Map();  // trackNumber -> { track: TextTrack, info }
+      this._activeSub = null;       // 当前显示的字幕轨 trackNumber
+      this._resumeTarget = null;    // 续播/回退目标时间（未跳转前用于缓冲清理锚点）
     }
 
     static loaded() {
@@ -63,17 +67,28 @@
       return this._bufferedEnd;
     }
 
+    getBufferedStart() {
+      const sb = this._sourceBuffer;
+      if (!sb || !sb.buffered || !sb.buffered.length) return 0;
+      try {
+        return sb.buffered.start(0);
+      } catch (e) {
+        return 0;
+      }
+    }
+
     isActive() {
       return !this._stopped && !!this._input;
     }
 
-    // callbacks: { status(text), progress(fraction), ready(), error(err) }
-    async play(file, video, cb) {
+    // callbacks: { status(text), progress(fraction), ready(), error(err), onSubtitleTracks(tracks, activeId) }
+    async play(file, video, cb, opts) {
       this._reset();
       this._file = file;
       this._video = video;
       this._cb = cb || {};
       this._startedAt = Date.now();
+      this._resumeTarget = (opts && opts.resumeAt) || null;
       if (!MikanMsePlayer.loaded()) throw new Error('Mediabunny 加载失败');
       if (!file || typeof file.createReadStream !== 'function') {
         throw new Error('当前文件不支持流式读取');
@@ -193,29 +208,88 @@
     _startSubtitleExtractor() {
       if (typeof window === 'undefined' || !window.MikanMkvSubs || !this._file) return;
       try {
+        // 清掉上一个播放器实例残留的字幕轨，避免多个 showing 轨叠加导致字幕不显示
+        if (this._video && this._video.textTracks) {
+          for (let i = 0; i < this._video.textTracks.length; i++) {
+            try { this._video.textTracks[i].mode = 'disabled'; } catch (e) { /* 忽略 */ }
+          }
+        }
         this._subs = window.MikanMkvSubs.extract({
           createReadStream: (opts) => this._file.createReadStream(opts),
           fileLength: this._file.length,
           onTrack: (info) => {
-            if (this._stopped || this._subtitleTrack || !this._video) return;
+            if (this._stopped || !this._video) return;
             try {
-              const track = this._video.addTextTrack('subtitles', info.label || '字幕', info.language || 'zh');
-              track.mode = 'showing';
-              this._subtitleTrack = track;
+              const num = Number(info.trackNumber);
+              if (!num || this._subTracks.has(num)) return;
+              const label = (info.label || '字幕') + (info.language && info.language !== 'und' ? '（' + info.language + '）' : '');
+              const track = this._video.addTextTrack('subtitles', label, info.language || 'zh');
+              track.mode = 'disabled';
+              this._subTracks.set(num, { track, info });
+              // 标记为默认的轨，或还没有任何显示轨时的第一条轨，直接显示，
+              // 避免依赖 onDefaultTrack 的时序导致字幕不出现。
+              if (info.isDefault || (this._activeSub == null && this._subTracks.size === 1)) {
+                this.setSubtitleTrack(num);
+              }
+              console.log('[mse] 发现字幕轨 #' + num + ' ' + info.codecId + ' ' + (info.language || ''));
+              this._announceSubs();
             } catch (e) { /* 忽略 */ }
           },
-          onCue: (cue) => {
-            if (this._stopped || !this._subtitleTrack) return;
+          onDefaultTrack: (num) => {
+            if (this._stopped || this._activeSub != null) return;
+            this.setSubtitleTrack(num);
+          },
+          onDone: () => {
+            if (this._stopped) return;
+            if (this._activeSub == null && this._subTracks.size) {
+              this.setSubtitleTrack([...this._subTracks.keys()][0]);
+            }
+            this._announceSubs();
+          },
+          onCue: (cue, trackNumber) => {
+            if (this._stopped) return;
+            const entry = this._subTracks.get(Number(trackNumber));
+            if (!entry) return;
             try {
               if (typeof VTTCue === 'function') {
-                const c = new VTTCue(cue.start, cue.end, cue.text);
-                this._subtitleTrack.addCue(c);
+                entry.track.addCue(new VTTCue(cue.start, cue.end, cue.text));
               }
             } catch (e) { /* 忽略 */ }
           },
         });
       } catch (e) {
         console.warn('[mse] 字幕提取未启动（不影响播放）:', e && e.message);
+      }
+    }
+
+    getSubtitleTracks() {
+      return [...this._subTracks.entries()].map(([num, entry]) => ({
+        id: num,
+        label: entry.info.label || '字幕',
+        language: entry.info.language || 'und',
+      }));
+    }
+
+    getActiveSubtitle() {
+      return this._activeSub;
+    }
+
+    setSubtitleTrack(num) {
+      if (num != null) num = Number(num);
+      for (const [n, entry] of this._subTracks) {
+        try {
+          entry.track.mode = (num != null && n === num) ? 'showing' : 'disabled';
+        } catch (e) { /* 忽略 */ }
+      }
+      this._activeSub = (num != null && this._subTracks.has(num)) ? num : null;
+      this._announceSubs();
+    }
+
+    _announceSubs() {
+      if (this._cb && typeof this._cb.onSubtitleTracks === 'function') {
+        try {
+          this._cb.onSubtitleTracks(this.getSubtitleTracks(), this._activeSub);
+        } catch (e) { /* 忽略 */ }
       }
     }
 
@@ -314,8 +388,19 @@
           try { this._cb.progress(p); } catch (e) { /* 忽略 */ }
         }
       };
-      await this._conversion.execute();
-      if (this._stopped) return;
+      // 分段推进封装：每跑 30 秒检查一次背压，缓冲超前太多就先停一停，
+      // 等播放进度追上来再继续，避免 SourceBuffer 里堆满数据。
+      const CHUNK_SEC = 30
+      let until = CHUNK_SEC
+      for (;;) {
+        if (this._stopped) return
+        await this._conversion.execute({ until })
+        if (this._stopped) return
+        if (this._conversion.state === 'done') break
+        await this._waitIfBufferAhead()
+        until += CHUNK_SEC
+      }
+      if (this._stopped) return
 
       // 转换完成：补上最后的分片和 init，然后结束流
       this._flushInit();
@@ -327,6 +412,20 @@
         try { this._mediaSource.endOfStream(); } catch (e) { /* 忽略 */ }
       }
       this._status('封装完成');
+    }
+
+    // 背压：封装器跑得比播放快太多时暂停，等播放进度追上来再继续，
+    // 防止 SourceBuffer 堆积超配额导致 appendBuffer 失败。
+    async _waitIfBufferAhead() {
+      for (;;) {
+        if (this._stopped) return;
+        let anchor = this._video ? this._video.currentTime : 0;
+        if (!anchor || !isFinite(anchor) || anchor <= 0) anchor = this._resumeTarget || 0;
+        if (!anchor || !isFinite(anchor) || anchor <= 0) return;
+        const ahead = this._bufferedEnd - anchor;
+        if (!(ahead > this._maxAheadSec)) return;
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
 
     _flushInit() {
@@ -358,8 +457,11 @@
         const sb = this._sourceBuffer;
         const v = this._video;
         if (!sb || !v || this._stopped) return resolve();
-        const t = v.currentTime;
-        if (!t || !isFinite(t)) return resolve();
+        // 续播/回退时 currentTime 还没跳过去，先用目标时间当清理锚点，
+        // 否则等待期间 currentTime=0 会一直不清理，SourceBuffer 很快被写满。
+        let t = v.currentTime;
+        if (!t || !isFinite(t) || t <= 0) t = this._resumeTarget || 0;
+        if (!t || !isFinite(t) || t <= 0) return resolve();
         if (sb.updating) {
           sb.addEventListener('updateend', () => this._evictOldData().then(resolve), { once: true });
           return;
@@ -486,7 +588,13 @@
         try { this._subs.stop(); } catch (e) { /* 忽略 */ }
         this._subs = null;
       }
+      for (const entry of this._subTracks.values()) {
+        try { entry.track.mode = 'disabled'; } catch (e) { /* 忽略 */ }
+      }
+      this._subTracks.clear();
+      this._activeSub = null;
       this._subtitleTrack = null;
+      this._resumeTarget = null;
       if (this._objectUrl) {
         URL.revokeObjectURL(this._objectUrl);
         this._objectUrl = null;

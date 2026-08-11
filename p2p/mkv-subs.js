@@ -8,8 +8,8 @@
 //   const subs = MikanMkvSubs.extract({
 //     createReadStream: (opts) => file.createReadStream(opts),
 //     fileLength: file.length,
-//     onTrack: (info) => { ... },  // { trackNumber, codecId, language, label }
-//     onCue: (cue) => { ... },     // { start, end, text }
+//     onTrack: (info) => { ... },  // 每个字幕轨回调一次 { trackNumber, codecId, language, label }
+//     onCue: (cue, trackNumber) => { ... },  // { start, end, text }
 //     onDone: () => { ... },
 //   });
 //   subs.stop();
@@ -105,7 +105,7 @@
       this.selectedTrack = null
       this.inCluster = false
       this.clusterTs = 0
-      this.pendingCue = null
+      this.pendingCues = new Map() // trackNumber -> 待收口的 cue
       this.cueCount = 0
       this.sawTracks = false
       this.stream = null
@@ -323,6 +323,9 @@
         }
         this.subtitleTracks.set(entry.trackNumber, info)
         this.sawTracks = true
+        if (this.opts.onTrack) {
+          try { this.opts.onTrack({ ...info, trackNumber: entry.trackNumber }) } catch (e) { /* 忽略 */ }
+        }
       }
     }
 
@@ -333,8 +336,8 @@
       const pick = byLang(/^(zh|chi|zho|cmn)/i) || byLang(/^(en|eng)/i) || tracks[0]
       this.selectedTrack = pick[0]
       if (this.debug) console.log('[subs] selected subtitle track', pick[0], pick[1].codecId, pick[1].language)
-      if (this.opts.onTrack) {
-        try { this.opts.onTrack(pick[1]) } catch (e) { /* 忽略 */ }
+      if (this.opts.onDefaultTrack) {
+        try { this.opts.onDefaultTrack(pick[0]) } catch (e) { /* 忽略 */ }
       }
     }
 
@@ -407,7 +410,7 @@
       if (!trackR || trackR.len + 2 > dataLen) return
       const trackNumber = trackR.value
       const info = this.subtitleTracks.get(trackNumber)
-      if (!info || trackNumber !== this.selectedTrack) return
+      if (!info) return
       // Block/SimpleBlock 头：TrackNumber(vint) -> Timestamp(2 字节有符号) -> Flags(1 字节)
       const tsOffset = dataStart + trackR.len
       const flags = this.buf[tsOffset + 2]
@@ -481,14 +484,15 @@
       for (const payload of frames) {
         const cue = this._toCue(info, payload, start, end)
         if (!cue) continue
-        if (this.pendingCue) {
+        const pending = this.pendingCues.get(trackNumber)
+        if (pending) {
           // 用下一条的开始时间收口上一条（SRT 常见）
-          if (cue.start > this.pendingCue.start && cue.start < this.pendingCue.end) {
-            this.pendingCue.end = cue.start
+          if (cue.start > pending.start && cue.start < pending.end) {
+            pending.end = cue.start
           }
-          this._emit(this.pendingCue)
+          this._emit(pending, trackNumber)
         }
-        this.pendingCue = cue
+        this.pendingCues.set(trackNumber, cue)
       }
     }
 
@@ -535,19 +539,19 @@
       return { start: s, end: e, text: escapeVtt(text) }
     }
 
-    _emit(cue) {
+    _emit(cue, trackNumber) {
       if (this.stopped || !cue || cue.end <= cue.start) return
       this.cueCount++
       if (this.opts.onCue) {
-        try { this.opts.onCue(cue) } catch (e) { /* 忽略 */ }
+        try { this.opts.onCue(cue, trackNumber) } catch (e) { /* 忽略 */ }
       }
     }
 
     _flushPending() {
-      if (this.pendingCue) {
-        this._emit(this.pendingCue)
-        this.pendingCue = null
+      for (const [trackNumber, cue] of this.pendingCues) {
+        this._emit(cue, trackNumber)
       }
+      this.pendingCues.clear()
     }
   }
 

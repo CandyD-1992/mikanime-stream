@@ -40,7 +40,14 @@ button {
 }
         button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
         button.ghost:hover { color: var(--text); border-color: var(--accent); }
-        button.ghost.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.ghost.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.subtitle-select {
+  background: var(--bg-soft); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; outline: none; cursor: pointer;
+  max-width: 190px;
+}
+        .subtitle-select option { background: var(--bg-card); color: var(--text); }
         .diag-text { white-space: pre-wrap; word-break: break-all; }
 .paste { display: flex; gap: 8px; flex: 1; min-width: 280px; }
 main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
@@ -277,17 +284,18 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
 .group-chip.active { color: var(--accent); border-color: var(--accent); background: rgba(255,107,157,.12); }
 
 .results-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
-.probe-toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; cursor: pointer; }
 .proxy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .proxy-row input {
   flex: 1; min-width: 260px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line);
   background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
 }
 .proxy-row input:focus { border-color: var(--accent); }
-.probe-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line); color: var(--muted); }
-.probe-badge.checking { color: var(--accent-2); border-color: rgba(110,231,255,.4); }
-.probe-badge.ok { color: var(--ok); border-color: rgba(89,217,138,.5); }
-.probe-badge.fail { color: var(--muted); border-color: var(--line); }
+.proxy-row textarea {
+  flex: 1; min-width: 260px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--bg-soft); color: var(--text); font-size: 12.5px; outline: none;
+  resize: vertical; font-family: inherit; line-height: 1.6;
+}
+.proxy-row textarea:focus { border-color: var(--accent); }
 .cache-section { margin-top: 26px; }
 .cache-section h3 { font-size: 15px; margin-bottom: 10px; color: var(--muted); }
 .cache-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
@@ -336,6 +344,9 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
         <h2 id="player-title"></h2>
         <div style="display:flex;gap:8px;flex-shrink:0">
           <button id="btn-queue-current" class="ghost hidden" type="button" title="把当前播放的资源加入下载队列">加入队列</button>
+          <select id="subtitle-select" class="subtitle-select hidden" title="选择字幕轨">
+            <option value="off">字幕：关闭</option>
+          </select>
           <button id="btn-player-fix" class="ghost" type="button" title="切换播放器固定在屏幕上或随页面滚动">固定播放器</button>
           <button id="btn-monitor" class="ghost" type="button">监控信息</button>
           <button id="btn-stop" class="ghost" type="button">停止</button>
@@ -422,18 +433,8 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
             <b>说明：</b>搜索由 <b>server.mjs</b>（NAS / 本机）代理蜜柑计划；下载和播放全部在浏览器里进行，服务端不做转码、不保存数据。
             浏览器默认通过 <b>“服务器中转（TCP/UDP）”</b> 连接做种者：由 NAS 用真实网络代为建立
             TCP/UDP 连接去连普通 BitTorrent 做种者，数据只经 NAS 转发、不落盘。
-            WebRTC 默认不开启，可在下方按钮手动切换。搜索结果会自动异步探测，
-            <b>✓ 有 WebRTC 节点</b>表示可直接连，<b>✗ 无 WebRTC 节点</b>表示需要中转。
             能连上时：mp4/webm 直接边下载边播放；mkv 会在浏览器里<b>边下载边无损封装</b>成 fMP4 边播放
             （不重新编码、画质无损失、大文件也能播），只有编码不受浏览器支持时才转码。
-          </div>
-        </div>
-        <div class="settings-section">
-          <h4>WebRTC 可用性探测</h4>
-          <div class="settings-row">
-            <label class="probe-toggle"><input type="checkbox" id="probe-toggle" checked> 自动探测（前 15 条）</label>
-            <button id="probe-recheck" class="icon-btn" type="button">重新探测</button>
-            <span id="probe-info" class="muted"></span>
           </div>
         </div>
         <div class="settings-section">
@@ -457,9 +458,18 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
           <div class="proxy-row">
             <span class="muted">中继地址覆盖（可选，反向代理不转发 WebSocket 时用）：</span>
             <input id="relay-url-input" type="text" placeholder="ws://NAS IP:3000/wasmnet 或 wss://...">
-            <button id="btn-relay-test" class="icon-btn" type="button">测试中继</button>
+            <button id="btn-relay-test" class="icon-btn" type="button">测试中转（延迟/速度）</button>
           </div>
-          <span id="relay-test-status" class="muted"></span>
+          <span id="relay-test-status" class="muted diag-text"></span>
+          <div class="proxy-row">
+            <span class="muted">多中继列表（每行一个 IP/域名，可选端口；自动补协议和 /wasmnet，中继需开放模式）：</span>
+            <textarea id="relay-list-input" rows="3" placeholder="192.168.3.21:3000&#10;hk.example.com&#10;1.2.3.4"></textarea>
+          </div>
+          <div class="settings-row">
+            <button id="btn-relay-test-all" class="ghost" type="button">测速全部中继</button>
+            <button id="btn-relay-use-fastest" class="ghost hidden" type="button">使用最快中继</button>
+            <span id="relay-list-status" class="muted diag-text"></span>
+          </div>
         </div>
         <div class="settings-section">
           <h4>下载队列</h4>
@@ -482,10 +492,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
         <div class="settings-section">
           <h4>TMDB（番剧搜索）</h4>
           <div class="settings-row" style="margin-bottom:8px">
-            <input id="tmdb-key-input" type="password" autocomplete="off" placeholder="选填：TMDB v3 API Key（免费申请）">
+            <input id="tmdb-key-input" type="password" autocomplete="off" placeholder="选填：TMDB v3 API Key（不填时用服务器配置或免 Key 公共镜像）">
           </div>
           <div class="settings-row" style="margin-bottom:8px">
-            <input id="tmdb-base-input" type="text" placeholder="选填：TMDB API 地址（默认 https://api.themoviedb.org/3）">
+            <input id="tmdb-base-input" type="text" placeholder="选填：TMDB API 地址（默认官方；可填免 Key 公共镜像）">
           </div>
           <span id="tmdb-key-status" class="muted"></span>
         </div>
@@ -560,9 +570,6 @@ const DIRECT_EXTS = ['.mp4', '.webm', '.m4v', '.mov'];
 const MSE_EXTS = ['.mkv'];                 // 浏览器流式无损封装（MKV -> fMP4，不重编码）
 const TRANSCODE_LIMIT_MB = 400;      // 超过此大小不尝试网页转码
 const CHUNKED_PLAY_LIMIT_MB = 700;   // 超过此大小不尝试分片边下边播（内存限制）
-const PROBE_LIMIT = 15;              // 搜索后默认探测多少条
-const PROBE_CONCURRENCY = 3;         // 同时探测几条
-const PROBE_TIMEOUT = 8000;          // 每条探测超时（毫秒）
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -581,12 +588,11 @@ const els = {
   actions: $('actions'), btnSave: $('btn-save'), btnCache: $('btn-cache'), btnStop: $('btn-stop'),
   btnMonitor: $('btn-monitor'), monitorOverlay: $('monitor-overlay'),
   btnPlayerFix: $('btn-player-fix'),
-  psPoster: $('ps-poster'), psTitle: $('ps-title'), psGroup: $('ps-group'),
+  psPoster: $('ps-poster'), psTitle: $('ps-title'), psGroup: $('ps-group'), subtitleSelect: $('subtitle-select'),
   psDate: $('ps-date'), psFile: $('ps-file'), psMagnet: $('ps-magnet'), psMikan: $('ps-mikan'),
   appLayout: $('app-layout'), appLeft: $('app-left'), appRight: $('app-right'),
   btnClickPlay: $('btn-click-play'),
   cacheSection: $('cache-section'), cacheList: $('cache-list'),
-  probeToggle: $('probe-toggle'), probeRecheck: $('probe-recheck'), probeInfo: $('probe-info'),
   proxyInput: $('proxy-input'),
   mikanBaseInput: $('mikan-base-input'),
   proxyStatus: $('proxy-status'),
@@ -595,6 +601,8 @@ const els = {
   relayUrlInput: $('relay-url-input'),
   btnRelayTest: $('btn-relay-test'),
   relayTestStatus: $('relay-test-status'),
+  relayListInput: $('relay-list-input'), btnRelayTestAll: $('btn-relay-test-all'),
+  btnRelayUseFastest: $('btn-relay-use-fastest'), relayListStatus: $('relay-list-status'),
   btnTrackerDiag: $('btn-tracker-diag'),
   trackerDiag: $('tracker-diag'),
   btnSettings: $('btn-settings'),
@@ -640,9 +648,6 @@ const state = {
   transcodeBusy: false,
   results: [],
   cacheEntries: [],
-  probeMap: new Map(),   // hash -> 'checking' | 'ok' | 'fail'
-  probeEnabled: true,
-  probeRunning: false,
   localProxyAlive: false,
   wasmnetRelayAlive: false, // 服务器 wasmnet 中继是否可用
   wasmnetMode: true,        // 默认用“服务器中转”方式连接做种者（WebRTC 默认不开启）
@@ -666,6 +671,9 @@ const state = {
   resumeTime: null,    // 换源时要精确恢复的进度（跨多次重建保持不变）
   priorityWindow: null, // 当前已标记优先的进度窗口 [start-end]
   resumeWaitStart: null, // 等待缓冲的开始时间（超时兜底用）
+  mseRestarting: false, // 回拖超缓冲时正在重建 MSE 播放器，期间忽略视频错误/seek
+  subtitleTracks: [],    // 当前播放文件发现的字幕轨 [{id,label,language}]
+  activeSubtitle: null,  // 当前显示的字幕轨 id（null = 关闭）
   tmdbShows: [],        // 最近一次 TMDB 搜索结果
   tmdbCurrentShow: null, // 当前展开查看的 TMDB 剧集
   tmdbCurrentSeason: 1,  // 当前选中的季
@@ -961,46 +969,108 @@ async function buildRelayUrl() {
   }
   return url;
 }
-function openRelaySocket(url) {
-  return new Promise((resolve, reject) => {
-    let done = false;
+// 中转测速源（纯 HTTP 大文件，避免 HTTPS 跳转影响测速；
+// Tele2 会拒连甲骨文 IP、OVH 会 301，所以用 thinkbroadband）
+const RELAY_TEST_HOSTS = [
+  { host: 'ipv4.download.thinkbroadband.com', port: 80, path: '/5MB.zip' },
+];
+
+function relayFrame(type, id, payload = new Uint8Array(0)) {
+  const out = new Uint8Array(9 + payload.length);
+  out[0] = type;
+  new DataView(out.buffer).setBigUint64(1, BigInt(id));
+  out.set(payload, 9);
+  return out;
+}
+
+function relayAddrPort(host, port) {
+  const a = new TextEncoder().encode(host);
+  const p = new Uint8Array(2 + a.length);
+  new DataView(p.buffer).setUint16(0, port);
+  p.set(a, 2);
+  return p;
+}
+
+// 通过中继 WebSocket 打开 TCP 连接并下载测速文件，返回延迟和速度
+function relayTestOnce(url, cand, opts) {
+  const maxBytes = (opts && opts.maxBytes) || 2 * 1024 * 1024;
+  const maxDataMs = (opts && opts.maxDataMs) || 15000;
+  const timeoutMs = (opts && opts.timeoutMs) || 30000;
+  return new Promise((resolve) => {
+    const t0 = performance.now();
     const ws = new WebSocket(url);
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
+    ws.binaryType = 'arraybuffer';
+    const id = 1;
+    let wsMs = 0;
+    let connectSentAt = 0;
+    let connectMs = 0;
+    let startedAt = 0;
+    let bytes = 0;
+    let speed = 0;
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error('测试超时')), timeoutMs);
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       try { ws.close(); } catch (e) { /* 忽略 */ }
-      reject(new Error('连接超时（10 秒）'));
-    }, 10000);
+      resolve({ err, wsMs, connectMs, speed });
+    };
     ws.onopen = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      try { ws.close(); } catch (e) { /* 忽略 */ }
-      resolve();
+      wsMs = performance.now() - t0;
+      connectSentAt = performance.now();
+      ws.send(relayFrame(0x01, id, relayAddrPort(cand.host, cand.port)));
     };
-    ws.onerror = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      reject(new Error('WebSocket 连接失败（检查反向代理是否开启 WebSocket 转发）'));
-    };
-    ws.onclose = (ev) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      reject(new Error('连接被关闭（code ' + ev.code + '）'));
+    ws.onerror = () => finish(new Error('WebSocket 连接失败'));
+    ws.onclose = (ev) => { if (!settled) finish(new Error('连接被关闭（code ' + ev.code + '）')); };
+    ws.onmessage = (ev) => {
+      const buf = new Uint8Array(ev.data);
+      if (buf.length < 9) return;
+      const type = buf[0];
+      const fid = Number(new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getBigUint64(1));
+      const payload = buf.subarray(9);
+      if (type === 0x81) { // CONNECTED
+        connectMs = performance.now() - connectSentAt;
+        startedAt = performance.now();
+        const req = 'GET ' + cand.path + ' HTTP/1.1\r\nHost: ' + cand.host +
+          '\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36' +
+          '\r\nAccept: */*\r\nConnection: close\r\n\r\n';
+        ws.send(relayFrame(0x04, fid, new TextEncoder().encode(req)));
+      } else if (type === 0x82) { // DATA
+        bytes += payload.length;
+        const elapsed = (performance.now() - startedAt) / 1000;
+        if (elapsed > 0) speed = bytes * 8 / elapsed;
+        // 收到足够数据或已测一段时间就提前结束，避免慢中继拖很久
+        if (bytes >= maxBytes || (startedAt && performance.now() - startedAt >= maxDataMs)) {
+          finish(null);
+        }
+      } else if (type === 0x85) { // CLOSED
+        finish(null);
+      } else if (type === 0x86 || type === 0x87) {
+        finish(new Error('中继拒绝：' + new TextDecoder().decode(payload)));
+      }
     };
   });
 }
+
 async function testRelay() {
-  els.relayTestStatus.textContent = '测试中…';
+  els.relayTestStatus.textContent = '测试中…（下载 5MB 测速）';
   try {
     const url = await buildRelayUrl();
-    await openRelaySocket(url);
+    const cand = RELAY_TEST_HOSTS[0];
+    const r = await relayTestOnce(url, cand, { maxBytes: 2 * 1024 * 1024, maxDataMs: 15000, timeoutMs: 30000 });
+    if (r.err) throw r.err;
     relayProbed = true;
     state.wasmnetRelayConnected = true;
     state.wasmnetError = null;
-    els.relayTestStatus.textContent = '✓ 中继连接正常';
+    const speedTxt = r.speed > 0
+      ? fmtSize(r.speed / 8) + '/s（' + (r.speed / 1e6).toFixed(1) + ' Mbps）'
+      : '—';
+    els.relayTestStatus.textContent =
+      '✓ 中继正常（' + cand.host + '）\n' +
+      'WebSocket 连接：' + Math.round(r.wsMs) + ' ms\n' +
+      'TCP 建连（经中继）：' + Math.round(r.connectMs) + ' ms\n' +
+      '下载速度：' + speedTxt;
   } catch (e) {
     serverConfigCache = null;
     state.wasmnetRelayConnected = false;
@@ -1008,6 +1078,98 @@ async function testRelay() {
     els.relayTestStatus.textContent = '✗ ' + e.message;
     console.warn('[mikan] relay test failed:', e.message);
   }
+  updateWasmnetStatus();
+}
+
+// ---------- 多中继：测速全部并选用最快 ----------
+let fastestRelay = null;
+
+function getRelayList() {
+  try {
+    return (localStorage.getItem('p2p_relay_list') || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter((s) => /^wss?:\/\//i.test(s) || /^[A-Za-z0-9.\-:[\]]+$/.test(s))
+      .map(relayEntryToUrl);
+  } catch (e) {
+    return [];
+  }
+}
+
+// 只填 IP/域名时自动补全：协议跟随页面（https→wss，http→ws），
+// 端口没写就沿用当前页面端口（如 12348），路径固定 /wasmnet。
+// 远程中继需要以开放模式运行（WASMNET_OPEN=1，不带 token）。
+function relayEntryToUrl(entry) {
+  let s = String(entry || '').trim();
+  if (/^wss?:\/\//i.test(s)) return s;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let port = location.port;
+  if (!port) port = proto === 'wss:' ? '443' : '80';
+  if (!/:\d+$/.test(s)) s += ':' + port;
+  return proto + '//' + s + '/wasmnet';
+}
+
+function prettyRelayUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.host + u.pathname;
+  } catch (e) {
+    return url;
+  }
+}
+
+async function testAllRelays() {
+  const list = getRelayList();
+  const urls = [];
+  try { urls.push(await buildRelayUrl()); } catch (e) { /* 当前默认地址可能不可用，忽略 */ }
+  for (const u of list) urls.push(u);
+  const unique = [...new Set(urls)];
+  if (!unique.length) {
+    els.relayListStatus.textContent = '没有可测的中继地址（请在“多中继列表”里填写）';
+    return;
+  }
+  els.relayListStatus.textContent = '正在测速 ' + unique.length + ' 个中继…';
+  const cand = RELAY_TEST_HOSTS[0];
+  const results = [];
+  for (const url of unique) {
+    const r = await relayTestOnce(url, cand, { maxBytes: 2 * 1024 * 1024, maxDataMs: 12000, timeoutMs: 20000 });
+    const label = prettyRelayUrl(url);
+    results.push({ url, label, ...r });
+    els.relayListStatus.textContent = label + '：'
+      + (r.err ? '失败 ' + r.err.message : Math.round(r.connectMs) + ' ms / ' + (r.speed / 1e6).toFixed(2) + ' Mbps');
+  }
+  const ok = results.filter((x) => !x.err && x.speed > 0).sort((a, b) => b.speed - a.speed);
+  if (!ok.length) {
+    fastestRelay = null;
+    els.btnRelayUseFastest.classList.add('hidden');
+    els.relayListStatus.textContent = '全部中继测速失败：' + results.map((x) => x.label).join('、') + '（可稍后重试）';
+    return;
+  }
+  fastestRelay = ok[0];
+  els.btnRelayUseFastest.classList.remove('hidden');
+  els.relayListStatus.textContent = results.map((x) => {
+    const star = x === ok[0] ? '★ ' : '';
+    return star + x.label + '：' + (x.err ? '失败' : Math.round(x.connectMs) + ' ms / ' + (x.speed / 1e6).toFixed(2) + ' Mbps');
+  }).join('\n');
+}
+
+async function useFastestRelay() {
+  if (!fastestRelay) return;
+  const url = fastestRelay.url;
+  try { localStorage.setItem('p2p_relay_url', url); } catch (e) { /* 忽略 */ }
+  try { if (els.relayUrlInput) els.relayUrlInput.value = url; } catch (e) { /* 忽略 */ }
+  // 强制中继客户端重连；已建立的连接会在报错后自动改用新地址
+  try {
+    if (window.__wasmnetRelay && window.__wasmnetRelay.resetClient) {
+      await window.__wasmnetRelay.resetClient();
+    }
+  } catch (e) { /* 忽略 */ }
+  serverConfigCache = null;
+  relayProbed = false;
+  els.btnRelayUseFastest.classList.add('hidden');
+  els.relayListStatus.textContent = '已切换：' + prettyRelayUrl(url)
+    + '（' + (fastestRelay.speed / 1e6).toFixed(2) + ' Mbps）。现有连接会自动重连，新任务直接使用该中继。';
+  showNote('已切换到最快中继：' + prettyRelayUrl(url));
   updateWasmnetStatus();
 }
 async function probeRelay() {
@@ -1299,7 +1461,6 @@ function resultRowHtml(item, idx) {
         <div class="result-meta">
           <span class="size">${escapeHtml(item.size)}</span>
           <span>${escapeHtml(item.date)}</span>
-          ${item.hash ? `<span class="probe-badge checking" data-hash="${item.hash}">WebRTC 探测中…</span>` : ''}
         </div>
       </div>
       <div class="result-actions">
@@ -1314,11 +1475,6 @@ function resultRowHtml(item, idx) {
 function bindResultActions(items) {
   els.results.querySelectorAll('[data-play]').forEach((b) => b.addEventListener('click', async () => {
     const item = items[Number(b.dataset.play)];
-    // 探测显示没有 WebRTC 节点时，直接用服务器中转模式重试
-    if (item.hash && state.probeMap.get(item.hash) === 'fail' && state.wasmnetRelayAlive) {
-      state.wasmnetMode = true;
-      updateWasmnetStatus();
-    }
     let magnet = item.magnet;
     // 磁力链只带少量 tracker；从种子文件补充完整 tracker 列表（含可达的公共 tracker）
     if (item.torrentUrl) {
@@ -1399,7 +1555,6 @@ function renderResults() {
   state.activeGroup = null;
   els.groupFilter.classList.add('hidden');
   updateRightEmpty();
-  state.probeMap.clear();
   els.resultsInfo.textContent = items.length ? '找到 ' + items.length + ' 个资源' : '';
   if (!items.length) {
     els.results.innerHTML = '<div class="empty">没有找到相关资源，换个关键词试试</div>';
@@ -1407,7 +1562,6 @@ function renderResults() {
   }
   els.results.innerHTML = items.map(resultRowHtml).join('');
   bindResultActions(items);
-  probeResults(items);
   refreshResultPlayingState();
 }
 
@@ -1993,14 +2147,14 @@ async function queuePlay(item) {
   showPlayer();
   setLoading('正在使用队列下载进度播放…');
   try {
-    await startFile(item.file);
+    const resumeAt = item.playTime || 0;
+    await startFile(item.file, resumeAt > 5 ? resumeAt : 0);
     const qt = item.torrent;
     if (qt && item.videoFiles && item.videoFiles.length > 1) {
       const videos = qt.files.filter((f) => VIDEO_EXTS.includes(extOf(f.name)));
       if (videos.length > 1) renderFileChips(videos);
     }
-    const resumeAt = item.playTime || 0;
-    if (resumeAt > 5) {
+    if (resumeAt > 5 && state.mode !== 'mse') {
       const trySeek = () => {
         if (els.video.readyState >= 1) {
           try { els.video.currentTime = Math.min(resumeAt, els.video.duration || resumeAt); } catch (err) { /* 忽略 */ }
@@ -2497,15 +2651,6 @@ async function searchSeasonOnMikan(show, season) {
   renderEpisodeResults(items, label, rawItems.length);
 }
 
-function applyProbeBadges() {
-  els.results.querySelectorAll('.probe-badge[data-hash]').forEach((b) => {
-    const st = state.probeMap.get(b.dataset.hash);
-    if (!st || st === 'checking') return;
-    b.className = 'probe-badge ' + st;
-    b.textContent = st === 'ok' ? '✓ 有 WebRTC 节点' : '✗ 无 WebRTC 节点';
-  });
-}
-
 function renderGroupFilter() {
   const chips = [
     { name: null, label: '全部', count: state.results.length },
@@ -2538,7 +2683,6 @@ function renderGroupedRows() {
   }
   let idx = 0;
   els.results.innerHTML = items.map((item) => resultRowHtml(item, idx++)).join('');
-  applyProbeBadges();
   bindResultActions(items);
 }
 
@@ -2553,11 +2697,9 @@ function renderEpisodeResults(items, label, rawCount) {
   state.resultGroups = entries.map(([name, list]) => ({ name, items: list }));
   state.activeGroup = null;
   state.results = items;
-  state.probeMap.clear();
   els.resultsInfo.textContent = label + '：原始 ' + rawCount + ' 条 → 筛选后 ' + items.length + ' 条（' + entries.length + ' 个字幕组）';
   renderGroupFilter();
   renderGroupedRows();
-  probeResults(items);
 }
 
 async function fetchAnimeAliases(show) {
@@ -2709,96 +2851,6 @@ async function initServiceWorker() {
     return reg;
   } catch (e) {
     return null;
-  }
-}
-
-// ---------- WebRTC 可用性探测 ----------
-let probeClient = null;
-async function getProbeClient() {
-  if (!probeClient) {
-    probeClient = new WebTorrent();
-    // 探测用 WebRTC 版不支持 HTTP/UDP tracker，会不断报"Unsupported tracker protocol"，
-    // 属于正常现象，静音避免干扰
-    probeClient.on('warning', () => {});
-    probeClient.on('error', () => {});
-  }
-  return probeClient;
-}
-
-function probeOne(magnet) {
-  return new Promise(async (resolve) => {
-    let timer = null;
-    try {
-      const client = await getProbeClient();
-      const torrent = client.add(withWsTrackers(magnet), await getStoreOpts());
-      let done = false;
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        try { client.remove(torrent.infoHash, () => {}); } catch (e) { /* 忽略 */ }
-        resolve(ok);
-      };
-      timer = setTimeout(() => finish(false), PROBE_TIMEOUT);
-      torrent.once('ready', () => finish(true));
-      torrent.once('error', () => finish(false));
-    } catch (e) {
-      if (timer) clearTimeout(timer);
-      resolve(false);
-    }
-  });
-}
-
-function updateProbeBadge(hash, status) {
-  const el = document.querySelector('.probe-badge[data-hash="' + hash + '"]');
-  if (!el) return;
-  el.className = 'probe-badge ' + status;
-  el.textContent = status === 'checking' ? 'WebRTC 探测中…'
-    : status === 'ok' ? '✓ 有 WebRTC 节点' : '✗ 无 WebRTC 节点';
-}
-
-async function probeResults(items) {
-  if (!state.probeEnabled || state.probeRunning) return;
-  state.probeRunning = true;
-  els.probeInfo.textContent = '正在探测 WebRTC 可用性…';
-  try {
-    await getWebTorrent();
-    const slice = items.slice(0, PROBE_LIMIT);
-    // 磁力链本身带 WebSocket tracker 的直接标记为可用
-    slice.forEach((it) => {
-      if (it.hash && /wss?:\/\//i.test(it.magnet)) {
-        state.probeMap.set(it.hash, 'ok');
-        updateProbeBadge(it.hash, 'ok');
-      }
-    });
-    const targets = slice.filter((it) => it.hash && !state.probeMap.has(it.hash));
-    let done = 0;
-    const total = targets.length;
-    const run = async (list) => {
-      for (const item of list) {
-        state.probeMap.set(item.hash, 'checking');
-        updateProbeBadge(item.hash, 'checking');
-        const ok = await probeOne(item.magnet);
-        state.probeMap.set(item.hash, ok ? 'ok' : 'fail');
-        updateProbeBadge(item.hash, ok ? 'ok' : 'fail');
-        done++;
-        els.probeInfo.textContent = 'WebRTC 探测 ' + done + '/' + total + '…';
-      }
-    };
-    if (total) {
-      const chunk = Math.max(1, Math.ceil(total / PROBE_CONCURRENCY));
-      const batches = [];
-      for (let i = 0; i < total; i += chunk) batches.push(targets.slice(i, i + chunk));
-      await Promise.all(batches.map(run));
-    }
-    const okCount = [...state.probeMap.values()].filter((v) => v === 'ok').length;
-    els.probeInfo.textContent = total
-      ? '探测完成：' + okCount + ' 条有 WebRTC 节点（其余无，可用“服务器中转”重试）'
-      : '';
-  } catch (e) {
-    els.probeInfo.textContent = '探测失败：' + e.message;
-  } finally {
-    state.probeRunning = false;
   }
 }
 
@@ -3048,7 +3100,7 @@ function prioritizeFile(file) {
   } catch (err) { /* 优先级设置失败不影响播放 */ }
 }
 
-async function startFile(file) {
+async function startFile(file, resumeAt) {
   state.currentFile = file;
   els.filePicker.querySelectorAll('.file-chip').forEach((b) => {
     b.classList.toggle('active', b.textContent.indexOf(file.name) === 0);
@@ -3063,7 +3115,7 @@ async function startFile(file) {
     if (!ok) {
       // Service Worker 不可用时（如局域网 HTTP），大文件改用 MSE 流式封装，避免内存限制
       state.mode = 'mse';
-      ok = await startMsePlayback(file);
+      ok = await startMsePlayback(file, resumeAt);
       if (!ok) {
         state.mode = 'direct';
         await startChunkedPlayback(file);
@@ -3071,7 +3123,7 @@ async function startFile(file) {
     }
   } else if (MSE_EXTS.includes(ext)) {
     state.mode = 'mse';
-    const ok = await startMsePlayback(file);
+    const ok = await startMsePlayback(file, resumeAt);
     if (!ok) {
       state.mode = 'remux';
       await startRemuxOrTranscode(file, state.lastMseError);
@@ -3311,7 +3363,7 @@ function fileToBlob(file, onProgress) {
 }
 
 // ---------- 方式二：mkv 流式无损封装（MKV -> fMP4，MSE 边下边播，不重编码） ----------
-async function startMsePlayback(file) {
+async function startMsePlayback(file, resumeAt) {
   stopChunkedPlayback();
   if (state.msePlayer) {
     state.msePlayer.stop().catch(() => {});
@@ -3319,12 +3371,14 @@ async function startMsePlayback(file) {
   }
   state.hasPlayed = false;
   state.resumeTime = null;
+  state.mseRestarting = false;
   state.playbackKind = 'mse';
   els.actions.classList.add('hidden');
   els.transcodePanel.classList.remove('hidden');
   els.transcodeFill.style.width = '0%';
   els.transcodeTime.textContent = '';
   els.transcodeStatus.textContent = '正在解析视频轨道…';
+  els.subtitleSelect.classList.add('hidden');
   setLoading('正在解析视频轨道…');
   const player = new MikanMsePlayer();
   state.msePlayer = player;
@@ -3340,24 +3394,32 @@ async function startMsePlayback(file) {
       },
       error: (err) => {
         console.warn('[mse] 播放器错误:', err && err.message);
+        if (state.mseRestarting) return;
         if (state.mode !== 'mse') return;
+        state.lastMseError = (err && err.message) || String(err || 'MSE 流式播放失败');
         if (!state.hasPlayed) {
           fallbackFromMse();
         } else {
-          showError('播放中断：' + ((err && err.message) || err));
+          showError('播放中断：' + state.lastMseError);
           setLoading(false);
         }
       },
-    });
+      onSubtitleTracks: (tracks, activeId) => populateSubtitleSelect(tracks, activeId),
+    }, (resumeAt && resumeAt > 0.5) ? { resumeAt } : undefined);
     // 播放通道已建立：等浏览器解析出头帧后自动开播
     els.video.onloadedmetadata = () => {
       if (state.mode !== 'mse') return;
-      setLoading(false);
-      safePlay();
+      if (resumeAt && resumeAt > 0.5) {
+        mseResumeAt(player, resumeAt);
+      } else {
+        setLoading(false);
+        safePlay();
+      }
     };
     els.video.onerror = () => {
-      if (state.mode !== 'mse') return;
+      if (state.mode !== 'mse' || state.mseRestarting) return;
       if (!state.hasPlayed) {
+        state.lastMseError = state.lastMseError || 'MSE 解码失败';
         fallbackFromMse();
       } else {
         showError('该视频无法在当前浏览器解码播放');
@@ -3366,8 +3428,12 @@ async function startMsePlayback(file) {
     };
     // 防止 metadata 在 play() 返回前就已就绪导致错过事件
     if (els.video.readyState >= 1) {
-      setLoading(false);
-      safePlay();
+      if (resumeAt && resumeAt > 0.5) {
+        mseResumeAt(player, resumeAt);
+      } else {
+        setLoading(false);
+        safePlay();
+      }
     }
     startPolling();
     return true;
@@ -3381,12 +3447,60 @@ async function startMsePlayback(file) {
   }
 }
 
+// 把播放器发现到的字幕轨填进下拉框
+function populateSubtitleSelect(tracks, activeId) {
+  state.subtitleTracks = tracks || [];
+  state.activeSubtitle = (activeId != null && state.subtitleTracks.some((t) => t.id === activeId))
+    ? activeId
+    : null;
+  updateMonitor();
+  const sel = els.subtitleSelect;
+  if (!sel) return;
+  if (!tracks || !tracks.length) {
+    sel.classList.add('hidden');
+    return;
+  }
+  sel.innerHTML = '';
+  const off = document.createElement('option');
+  off.value = 'off';
+  off.textContent = '字幕：关闭';
+  sel.appendChild(off);
+  for (const t of tracks) {
+    const o = document.createElement('option');
+    o.value = String(t.id);
+    o.textContent = t.label + (t.language && t.language !== 'und' ? '（' + t.language + '）' : '');
+    sel.appendChild(o);
+  }
+  sel.value = activeId != null ? String(activeId) : 'off';
+  sel.classList.remove('hidden');
+}
+
+// 回退/续播：等 MSE 缓冲追到目标时间再定位播放，避免跳到没数据的位置
+async function mseResumeAt(player, target) {
+  const v = els.video;
+  setLoading('正在缓冲到目标位置…');
+  for (let i = 0; i < 240; i++) {
+    if (state.mode !== 'mse' || !state.msePlayer || state.msePlayer !== player) return;
+    if (player.getBufferedEnd() >= target + 0.5) {
+      try { v.currentTime = target; } catch (e) { /* 忽略 */ }
+      setLoading(false);
+      safePlay();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  try { v.currentTime = Math.max(0, player.getBufferedEnd() - 0.5); } catch (e) { /* 忽略 */ }
+  setLoading(false);
+  safePlay();
+}
+
 function fallbackFromMse() {
   if (state.msePlayer) {
     state.msePlayer.stop().catch(() => {});
     state.msePlayer = null;
   }
   els.transcodePanel.classList.add('hidden');
+  els.subtitleSelect.classList.add('hidden');
   hideError();
   const f = state.currentFile;
   state.mode = 'remux';
@@ -3754,6 +3868,7 @@ function updateMonitor() {
     monitorRow('大小/时长', f ? fmtSize(f.length) + ' · ' + duration : '—'),
     monitorRow('实时码率', bitrate),
     monitorRow('播放方式', playbackKindText()),
+    monitorRow('字幕', subtitleText()),
     monitorRow('下载', t ? fmtSize(t.downloadSpeed) + '/s · ' + Math.round((t.progress || 0) * 100) + '% · ' + t.numPeers + ' 连接' : '—'),
     monitorRow('缓存位置', cacheLoc),
     monitorRow('种子', t ? t.infoHash.slice(0, 16) + '…' : '—'),
@@ -3763,6 +3878,13 @@ function updateMonitor() {
   const pct = t ? Math.max(0, Math.min(100, Math.round((t.progress || 0) * 100))) : 0;
   lines.push('<div class="monitor-progress"><div style="width:' + pct + '%"></div></div>');
   els.monitorOverlay.innerHTML = lines.join('');
+}
+
+function subtitleText() {
+  if (!state.subtitleTracks.length) return '—';
+  const active = state.subtitleTracks.find((t) => t.id === state.activeSubtitle);
+  if (!active) return '已关闭';
+  return (active.label || '字幕') + (active.language && active.language !== 'und' ? '（' + active.language + '）' : '');
 }
 
 // ---------- 停止 / 清理 ----------
@@ -3783,6 +3905,9 @@ async function stopPlayback(silent) {
   state.storeKind = null;
   state.priorityWindow = null;
   state.resumeWaitStart = null;
+  state.mseRestarting = false;
+  state.subtitleTracks = [];
+  state.activeSubtitle = null;
   if (state.ffmpeg) {
     try { state.ffmpeg.worker.terminate(); } catch (e) { /* 忽略 */ }
     state.ffmpeg = null;
@@ -3795,6 +3920,7 @@ async function stopPlayback(silent) {
   els.video.removeAttribute('src');
   els.video.load();
   els.transcodePanel.classList.add('hidden');
+  els.subtitleSelect.classList.add('hidden');
   els.actions.classList.add('hidden');
   els.filePicker.classList.add('hidden');
   els.statProgress.textContent = '0%';
@@ -3942,18 +4068,47 @@ function clampSeekToDownloaded() {
     try { v.currentTime = frontier; } catch (e) { /* 忽略 */ }
   }
 }
+
+// MSE 模式：往前拖超过已保留缓冲时，重建播放器并跳到目标位置
+async function maybeRestartMseBackward() {
+  if (state.mode !== 'mse' || state.mseRestarting) return;
+  const p = state.msePlayer;
+  const v = els.video;
+  if (!p || typeof p.getBufferedStart !== 'function' || !v) return;
+  const target = v.currentTime;
+  if (!(target > 0.5)) return;
+  const start = p.getBufferedStart();
+  if (target >= start - 0.5) return;
+  const file = state.currentFile;
+  if (!file) return;
+  state.mseRestarting = true;
+  setLoading('正在回退到目标位置…');
+  try {
+    await p.stop().catch(() => {});
+    if (state.msePlayer === p) state.msePlayer = null;
+    const ok = await startMsePlayback(file, target);
+    if (!ok) fallbackFromMse();
+  } catch (e) {
+    fallbackFromMse();
+  } finally {
+    state.mseRestarting = false;
+  }
+}
+
 els.video.addEventListener('seeking', () => {
   clampSeekToDownloaded();
-  if (seekPushTimer) return; // 拖拽过程中合并为一次
+  if (seekPushTimer) clearTimeout(seekPushTimer); // 拖拽过程中合并为一次
   seekPushTimer = setTimeout(() => {
     seekPushTimer = null;
     pushSeekPriority();
+    maybeRestartMseBackward();
   }, 300);
 });
 els.video.addEventListener('seeked', () => {
   clampSeekToDownloaded();
   if (seekPushTimer) { clearTimeout(seekPushTimer); seekPushTimer = null; }
   pushSeekPriority();
+  maybeRestartMseBackward();
 });
 els.video.addEventListener('loadedmetadata', () => {
   updateMonitor();
@@ -3975,6 +4130,12 @@ els.btnMonitor.addEventListener('click', () => {
   els.btnMonitor.textContent = show ? '收起监控' : '监控信息';
   if (show) updateMonitor();
 });
+els.subtitleSelect.addEventListener('change', () => {
+  const p = state.msePlayer;
+  if (!p || typeof p.setSubtitleTrack !== 'function') return;
+  const v = els.subtitleSelect.value;
+  p.setSubtitleTrack(v === 'off' ? null : Number(v));
+});
 els.btnClickPlay.addEventListener('click', () => {
   els.btnClickPlay.classList.add('hidden');
   safePlay();
@@ -3987,7 +4148,7 @@ function updateTmdbKeyStatus() {
   const parts = [];
   parts.push(k
     ? 'API Key 已设置（' + k.slice(0, 4) + '…' + k.slice(-4) + '）'
-    : 'API Key 未设置');
+    : 'API Key 未设置（用服务器配置或公共镜像）');
   if (b) {
     try { parts.push('地址：' + new URL(b).host); } catch (e) { parts.push('地址：' + b); }
   } else {
@@ -4083,6 +4244,10 @@ els.relayUrlInput.addEventListener('change', () => {
   else localStorage.removeItem('p2p_relay_url');
   serverConfigCache = null;
 });
+els.relayListInput.value = (localStorage.getItem('p2p_relay_list') || '');
+els.relayListInput.addEventListener('change', () => {
+  try { localStorage.setItem('p2p_relay_list', els.relayListInput.value); } catch (e) { /* 忽略 */ }
+});
 let savedQueueConcurrency = 1;
 try { savedQueueConcurrency = parseInt(localStorage.getItem('p2p_queue_concurrency') || '1', 10) || 1; } catch (e) { /* 忽略 */ }
 els.queueConcurrencyInput.value = Math.min(5, Math.max(1, savedQueueConcurrency));
@@ -4106,16 +4271,6 @@ els.cacheLimitInput.addEventListener('change', () => {
   enforceCacheLimit(queueCacheLimitBytes());
 });
 
-els.probeToggle.addEventListener('change', () => {
-  state.probeEnabled = els.probeToggle.checked;
-  if (state.probeEnabled && state.results.length && !state.probeRunning) probeResults(state.results);
-});
-els.probeRecheck.addEventListener('click', () => {
-  if (state.probeRunning) return;
-  state.probeMap.clear();
-  state.results.forEach((it) => { if (it.hash) updateProbeBadge(it.hash, 'checking'); });
-  probeResults(state.results);
-});
 const savedProxy = (localStorage.getItem('p2p_proxy_prefix') || '').trim();
 if (savedProxy) els.proxyInput.value = savedProxy;
 els.proxyInput.addEventListener('change', () => {
@@ -4137,6 +4292,8 @@ els.btnRelayTest.addEventListener('click', () => {
   relayProbed = false;
   testRelay();
 });
+els.btnRelayTestAll.addEventListener('click', () => testAllRelays());
+els.btnRelayUseFastest.addEventListener('click', () => useFastestRelay());
 window.addEventListener('mikan-wasmnet', (e) => {
   const d = e.detail || {};
   if (d.status === 'connected') {

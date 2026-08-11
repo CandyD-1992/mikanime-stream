@@ -189,11 +189,6 @@ async function tmdbProxy(req, res, apiPath) {
     return res.status(403).json({ error: 'forbidden' })
   }
   const key = TMDB_API_KEY || String(req.query.key || '').trim()
-  if (!key) {
-    return res.status(400).json({
-      error: '未配置 TMDB API Key：请在服务器环境变量 TMDB_API_KEY 设置，或在页面“设置”里填写',
-    })
-  }
   const rawBase = String(req.query.base || '').trim()
   // 候选地址顺序：页面设置 > 环境变量 > TMDB_API_FALLBACKS > 官方地址。
   // 主地址 DNS 解析失败（EAI_AGAIN）或连不上时，自动换下一个，不再一锤子报错。
@@ -210,6 +205,17 @@ async function tmdbProxy(req, res, apiPath) {
   }
 
   const explicit = rawBase || TMDB_API_BASE
+  // 没有 Key 时：允许免 Key 的公共镜像/代理直接请求；
+  // 只有目标是官方地址（必须带 Key）时才提前给出提示，避免白跑一遍 401。
+  if (!key) {
+    let host = ''
+    try { host = new URL(explicit).host } catch (e) { /* 忽略 */ }
+    if (host === 'api.themoviedb.org') {
+      return res.status(400).json({
+        error: '未配置 TMDB API Key：请填写 Key，或把 TMDB API 地址设为免 Key 的公共镜像',
+      })
+    }
+  }
   let u
   try {
     u = new URL(explicit)
@@ -221,7 +227,7 @@ async function tmdbProxy(req, res, apiPath) {
   }
 
   const sep = apiPath.includes('?') ? '&' : '?'
-  const params = 'api_key=' + encodeURIComponent(key) + '&language=zh-CN'
+  const params = 'language=zh-CN' + (key ? '&api_key=' + encodeURIComponent(key) : '')
   const officialUrl = 'https://api.themoviedb.org/3' + apiPath + sep + params
   const errors = []
   for (const base of candidates) {

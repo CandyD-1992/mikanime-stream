@@ -5,6 +5,7 @@ vendor/node/
 vendor/node_modules/
 mikanime-stream-release.zip
 *.log
+.env
 data/
 bin/
 .esb-test/

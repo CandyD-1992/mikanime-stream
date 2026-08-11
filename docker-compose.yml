@@ -12,12 +12,12 @@ services:
       - 223.5.5.5
       - 119.29.29.29
       - 114.114.114.114
-    # 可选：TMDB API Key（用于番剧搜索/选集；不填也可以在页面“设置”里填写）
-    # TMDB_API_BASE 可改成可用的镜像/代理地址（也可在页面“设置”里填写；
-    # 若为代理模板请用 {url} 占位，如 https://corsproxy.io/?url={url}）
-    # TMDB_API_FALLBACKS 是备用地址列表（逗号分隔），主地址失败时自动换下一个
-    # MIKAN_BASE 可指定蜜柑站点（默认自动尝试 mikanime.tv / mikanani.me）
-    # environment:
-    #   - TMDB_API_KEY=你的key
-    #   - TMDB_API_BASE=https://api.themoviedb.org/3
-    #   - MIKAN_BASE=https://mikanime.tv
+    # 可选环境变量（也可在页面“设置”里填写，页面优先级更高）：
+    # TMDB_API_KEY 建议放在同目录 .env 里，不会进代码仓库；
+    # 不填 Key 时，若 TMDB_API_BASE 是免 Key 的公共镜像也可以直接用。
+    # TMDB_API_BASE 若为代理模板请用 {url} 占位，如 https://corsproxy.io/?url={url}
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_API_BASE=${TMDB_API_BASE:-}
+      - TMDB_API_FALLBACKS=${TMDB_API_FALLBACKS:-}
+      - MIKAN_BASE=${MIKAN_BASE:-}
