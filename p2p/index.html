@@ -462,8 +462,12 @@ main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 80px; }
           </div>
           <span id="relay-test-status" class="muted diag-text"></span>
           <div class="proxy-row">
-            <span class="muted">多中继列表（每行一个 IP/域名，可选端口；自动补协议和 /wasmnet，中继需开放模式）：</span>
+            <span class="muted">多中继列表（每行一个 IP/域名，可选端口；自动补协议和 /wasmnet）：</span>
             <textarea id="relay-list-input" rows="3" placeholder="192.168.3.21:3000&#10;hk.example.com&#10;1.2.3.4"></textarea>
+          </div>
+          <div class="proxy-row">
+            <span class="muted">多中继共用 Token（选填；各中继部署统一设置同一个 WASMNET_TOKEN 时填写）：</span>
+            <input id="relay-token-input" type="text" placeholder="所有中继统一配置的 WASMNET_TOKEN">
           </div>
           <div class="settings-row">
             <button id="btn-relay-test-all" class="ghost" type="button">测速全部中继</button>
@@ -603,6 +607,7 @@ const els = {
   relayTestStatus: $('relay-test-status'),
   relayListInput: $('relay-list-input'), btnRelayTestAll: $('btn-relay-test-all'),
   btnRelayUseFastest: $('btn-relay-use-fastest'), relayListStatus: $('relay-list-status'),
+  relayTokenInput: $('relay-token-input'),
   btnTrackerDiag: $('btn-tracker-diag'),
   trackerDiag: $('tracker-diag'),
   btnSettings: $('btn-settings'),
@@ -1096,9 +1101,18 @@ function getRelayList() {
   }
 }
 
+function getRelayToken() {
+  try {
+    return (localStorage.getItem('p2p_relay_token') || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
 // 只填 IP/域名时自动补全：协议跟随页面（https→wss，http→ws），
 // 端口没写就沿用当前页面端口（如 12348），路径固定 /wasmnet。
-// 远程中继需要以开放模式运行（WASMNET_OPEN=1，不带 token）。
+// 如果设置了“多中继共用 Token”，会自动拼到地址上；
+// 完整 URL（含 token）会原样使用。
 function relayEntryToUrl(entry) {
   let s = String(entry || '').trim();
   if (/^wss?:\/\//i.test(s)) return s;
@@ -1106,7 +1120,12 @@ function relayEntryToUrl(entry) {
   let port = location.port;
   if (!port) port = proto === 'wss:' ? '443' : '80';
   if (!/:\d+$/.test(s)) s += ':' + port;
-  return proto + '//' + s + '/wasmnet';
+  let url = proto + '//' + s + '/wasmnet';
+  const token = getRelayToken();
+  if (token && !/[?&]token=/.test(url)) {
+    url += '?token=' + encodeURIComponent(token);
+  }
+  return url;
 }
 
 function prettyRelayUrl(url) {
@@ -4247,6 +4266,10 @@ els.relayUrlInput.addEventListener('change', () => {
 els.relayListInput.value = (localStorage.getItem('p2p_relay_list') || '');
 els.relayListInput.addEventListener('change', () => {
   try { localStorage.setItem('p2p_relay_list', els.relayListInput.value); } catch (e) { /* 忽略 */ }
+});
+els.relayTokenInput.value = getRelayToken();
+els.relayTokenInput.addEventListener('change', () => {
+  try { localStorage.setItem('p2p_relay_token', els.relayTokenInput.value.trim()); } catch (e) { /* 忽略 */ }
 });
 let savedQueueConcurrency = 1;
 try { savedQueueConcurrency = parseInt(localStorage.getItem('p2p_queue_concurrency') || '1', 10) || 1; } catch (e) { /* 忽略 */ }
