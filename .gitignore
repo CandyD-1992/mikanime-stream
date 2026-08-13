@@ -10,4 +10,3 @@ data/
 bin/
 .esb-test/
 server.log
-start.bat
