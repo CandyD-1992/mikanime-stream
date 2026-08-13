@@ -105,6 +105,7 @@
       this.selectedTrack = null
       this.inCluster = false
       this.clusterTs = 0
+      this.clusterEnd = null // 已知大小 Cluster 的结束偏移（未知大小时为 null）
       this.pendingCues = new Map() // trackNumber -> 待收口的 cue
       this.cueCount = 0
       this.sawTracks = false
@@ -179,27 +180,30 @@
       const id = idR.value
       const headerLen = idR.len + sizeR.len
       const dataStart = this.pos + headerLen
-      if (!sizeR.unknown && dataStart + sizeR.value > this.buf.length) {
+      const dataLen = sizeR.unknown ? null : sizeR.value
+      // Segment/Cluster 是流式容器：数据边到边解析，不需要等整个元素到齐；
+      // 其余元素（含要跳过的叶子）等数据齐了再处理，避免解析半个元素。
+      const streamingContainer = id === EBML.Segment || id === EBML.Cluster
+      if (!streamingContainer && !sizeR.unknown && dataStart + sizeR.value > this.buf.length) {
         if (!forceEnd) return
         // 文件结束处被截断：直接停
         this.pos = this.buf.length
         return
       }
 
-      const dataLen = sizeR.unknown ? null : sizeR.value
       if (this.debug) console.log('[subs] id=' + id.toString(16) + ' len=' + dataLen + ' pos=' + this.pos)
       if (id === EBML.Info) {
         this._parseInfo(dataStart, dataLen)
       } else if (id === EBML.Tracks) {
         this._parseTracks(dataStart, dataLen)
       } else if (id === EBML.Cluster) {
-        if (sizeR.unknown) {
-          // 未知大小 Cluster（直播流）：进入子元素扫描状态
-          this.inCluster = true
-          this.clusterTs = 0
-        } else {
-          this._parseCluster(dataStart, dataLen)
-        }
+        // 无论大小是否已知，都进入子元素增量扫描状态；
+        // 已知大小时用 clusterEnd 标记边界，扫描到边界即退出。
+        this.inCluster = true
+        this.clusterTs = 0
+        this.clusterEnd = sizeR.unknown ? null : dataStart + sizeR.value
+        this.pos = dataStart
+        return
       } else if (dataLen != null && this._skippable(id)) {
         // 叶子元素直接跳过（Cues/Attachments/Chapters/Tags/SeekHead/Void/CRC 等）
       } else {
@@ -214,6 +218,11 @@
     }
 
     _scanClusterChild(forceEnd) {
+      if (this.clusterEnd != null && this.pos >= this.clusterEnd) {
+        this.inCluster = false
+        this.clusterEnd = null
+        return
+      }
       if (this._need(2)) return
       const idR = readVint(this.buf, this.pos)
       if (!idR || this._need(idR.len + 1)) return
@@ -225,6 +234,7 @@
       if (this._isTopLevel(id)) {
         // 未知大小 Cluster 结束：交还给外层扫描
         this.inCluster = false
+        this.clusterEnd = null
         return
       }
       const hasData = sizeR.unknown || valueStart + sizeR.value <= this.buf.length
@@ -232,6 +242,7 @@
         if (!forceEnd) return
         this.pos = this.buf.length
         this.inCluster = false
+        this.clusterEnd = null
         return
       }
       if (id === EBML.Timestamp && sizeR.value <= 8) {
@@ -245,6 +256,10 @@
       }
       if (sizeR.value == null) this.pos = valueStart
       else this.pos = valueStart + sizeR.value
+      if (this.clusterEnd != null && this.pos >= this.clusterEnd) {
+        this.inCluster = false
+        this.clusterEnd = null
+      }
     }
 
     _skippable(id) {
@@ -527,16 +542,38 @@
 
     _assLine(line, fallbackStart, fallbackEnd) {
       const m = /^Dialogue\s*:\s*(.*)$/.exec(line)
-      if (!m) return null
-      const parts = m[1].split(',')
-      if (parts.length < 10) return null
-      const start = assTsToSec(parts[1])
-      const end = assTsToSec(parts[2])
-      const text = cleanAssText(parts.slice(9).join(','))
-      if (!text) return null
-      const s = start != null ? start : fallbackStart
-      const e = end != null && end > s ? end : (fallbackEnd > s ? fallbackEnd : s + 3)
-      return { start: s, end: e, text: escapeVtt(text) }
+      if (m) {
+        const parts = m[1].split(',')
+        if (parts.length < 10) return null
+        const start = assTsToSec(parts[1])
+        const end = assTsToSec(parts[2])
+        const text = cleanAssText(parts.slice(9).join(','))
+        if (!text) return null
+        const s = start != null ? start : fallbackStart
+        const e = end != null && end > s ? end : (fallbackEnd > s ? fallbackEnd : s + 3)
+        return { start: s, end: e, text: escapeVtt(text) }
+      }
+      const parts = line.split(',')
+      // 带时间戳但没有 Dialogue 前缀：Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+      if (parts.length >= 10 && assTsToSec(parts[1]) != null && assTsToSec(parts[2]) != null) {
+        const start = assTsToSec(parts[1])
+        const end = assTsToSec(parts[2])
+        const text = cleanAssText(parts.slice(9).join(','))
+        if (!text) return null
+        const s = start != null ? start : fallbackStart
+        const e = end != null && end > s ? end : (fallbackEnd > s ? fallbackEnd : s + 3)
+        return { start: s, end: e, text: escapeVtt(text) }
+      }
+      // mkvmerge 封装：去掉 "Dialogue:" 前缀和时间戳，时间移入 MKV Block 时间码，
+      // 载荷格式为 ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+      if (parts.length >= 9 && !/\d+:\d{2}:\d{2}[.:]\d{2}/.test(line)) {
+        const text = cleanAssText(parts.slice(8).join(','))
+        if (!text) return null
+        const s = fallbackStart
+        const e = fallbackEnd > s ? fallbackEnd : s + 3
+        return { start: s, end: e, text: escapeVtt(text) }
+      }
+      return null
     }
 
     _emit(cue, trackNumber) {

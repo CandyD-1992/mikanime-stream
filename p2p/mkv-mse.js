@@ -390,13 +390,17 @@
       };
       // 分段推进封装：每跑 30 秒检查一次背压，缓冲超前太多就先停一停，
       // 等播放进度追上来再继续，避免 SourceBuffer 里堆满数据。
-      const CHUNK_SEC = 30
+      const CHUNK_SEC = 15
       let until = CHUNK_SEC
       for (;;) {
         if (this._stopped) return
         await this._conversion.execute({ until })
         if (this._stopped) return
         if (this._conversion.state === 'done') break
+        // 先让 append 队列追平：_bufferedEnd 只在 append 完成后更新，
+        // 若直接检查背压，转换器会因 bufferedEnd 滞后而继续超前转换，
+        // 导致 SourceBuffer 在背压触发前就被写满。
+        await this._drainAppends()
         await this._waitIfBufferAhead()
         until += CHUNK_SEC
       }

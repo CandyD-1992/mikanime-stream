@@ -30,9 +30,15 @@ const fileIdx = process.argv.indexOf('--file')
 const mkvPath = fileIdx >= 0
   ? path.resolve(process.argv[fileIdx + 1])
   : path.join(root, 'scripts', 'testdata', 'annex-b-avc.mkv')
+const magnetIdx = process.argv.indexOf('--magnet')
+const userMagnet = magnetIdx >= 0 ? process.argv[magnetIdx + 1] : null
 const WITH_SEEDER = !process.argv.includes('--no-seed')
 const PAGE_MODE = process.argv.includes('--page')
 const START_SERVER = process.argv.includes('--server')
+const channelIdx = process.argv.indexOf('--channel')
+const CHANNEL = channelIdx >= 0 ? process.argv[channelIdx + 1] : null
+const playIdx = process.argv.indexOf('--play-seconds')
+const PLAY_SECONDS = playIdx >= 0 ? Number(process.argv[playIdx + 1]) || 0 : 0
 
 let serverProc = null
 if (START_SERVER) {
@@ -50,20 +56,32 @@ if (START_SERVER) {
   }
 }
 
-// ---------- 1) 用目标 MKV 生成真实种子 ----------
-const fileData = fs.readFileSync(mkvPath)
-const fileName = path.basename(mkvPath)
-const torrentBuf = await new Promise((resolve, reject) => {
-  createTorrent([fileData], { name: fileName }, (err, buf) => (err ? reject(err) : resolve(buf)))
-})
-const meta = bencode.decode(torrentBuf)
-const infoBytes = NodeBuffer.from(bencode.encode(meta.info))
-const infoHash = crypto.createHash('sha1').update(infoBytes).digest('hex')
-const pieceLength = meta.info['piece length']
-const totalSize = fileData.length
-const numPieces = Math.ceil(totalSize / pieceLength)
-const magnet = 'magnet:?xt=urn:btih:' + infoHash + '&dn=' + encodeURIComponent(fileName)
-log('[mse-test] file:', fileName, '| size:', totalSize, '| pieces:', numPieces, '| piece:', pieceLength)
+// ---------- 1) 用目标 MKV 生成真实种子（或使用用户提供的磁力链） ----------
+let fileData = null
+let fileName = ''
+let infoBytes = null
+let pieceLength = 0
+let totalSize = 0
+let numPieces = 0
+let magnet = null
+if (userMagnet) {
+  magnet = userMagnet
+  log('[mse-test] using user-provided magnet:', magnet)
+} else {
+  fileData = fs.readFileSync(mkvPath)
+  fileName = path.basename(mkvPath)
+  const torrentBuf = await new Promise((resolve, reject) => {
+    createTorrent([fileData], { name: fileName }, (err, buf) => (err ? reject(err) : resolve(buf)))
+  })
+  const meta = bencode.decode(torrentBuf)
+  infoBytes = NodeBuffer.from(bencode.encode(meta.info))
+  const infoHash = crypto.createHash('sha1').update(infoBytes).digest('hex')
+  pieceLength = meta.info['piece length']
+  totalSize = fileData.length
+  numPieces = Math.ceil(totalSize / pieceLength)
+  magnet = 'magnet:?xt=urn:btih:' + infoHash + '&dn=' + encodeURIComponent(fileName)
+  log('[mse-test] file:', fileName, '| size:', totalSize, '| pieces:', numPieces, '| piece:', pieceLength)
+}
 
 // ---------- 2) 迷你 BT 做种者 ----------
 const u32 = (n) => { const b = NodeBuffer.alloc(4); b.writeUInt32BE(n); return b }
@@ -132,14 +150,14 @@ const seeder = netnode.createServer((sock) => {
     }
   })
 })
-if (WITH_SEEDER) {
+if (WITH_SEEDER && !userMagnet) {
   await new Promise((r) => seeder.listen(0, '127.0.0.1', r))
   seederPort = seeder.address().port
   log('[mse-test] 做种者监听', seederPort)
 }
 
 // ---------- 4) 浏览器内测试 ----------
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: true, ...(CHANNEL ? { channel: CHANNEL } : {}) })
 log('[mse-test] 浏览器已启动')
 const page = await browser.newPage()
 log('[mse-test] 页面已创建')
@@ -161,7 +179,7 @@ for (let i = 0; i < 30 && !(await page.evaluate(() => typeof window.MikanMsePlay
   await new Promise((r) => setTimeout(r, 300))
 }
 
-const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, fileName }) => {
+const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, fileName, playSeconds }) => {
   const out = { started: false, readyState: 0, duration: 0, currentTime: 0, error: null, mseStatus: '', playbackKind: '' }
   const video = document.getElementById('video')
   // 页面是懒加载 wasmnet 包的，先手动加载，确保能拦截客户端创建
@@ -222,7 +240,9 @@ const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, file
   }
   const chips = [...document.querySelectorAll('.file-chip')]
   if (chips.length) {
-    const chip = chips.find((c) => c.textContent.includes(fileName)) || chips[0]
+    const chip = chips.find((c) => c.textContent.toLowerCase().includes('.mkv'))
+      || chips.find((c) => c.textContent.includes(fileName))
+      || chips[0]
     console.log('[mse] file chip: ' + chip.textContent)
     chip.click()
   }
@@ -247,9 +267,42 @@ const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, file
   const mono = document.getElementById('monitor-overlay').textContent
   out.playbackKind = mono.match(/播放方式[^\n]*/)?.[0] || ''
   out.mseStatus = (document.getElementById('transcode-status') || {}).textContent || ''
+  out.title = (document.getElementById('player-title') || {}).textContent || ''
+  out.subtitleOptions = [...(document.querySelector('#subtitle-select') || { options: [] }).options].map((o) => o.textContent)
+  out.torrentName = (document.getElementById('stat-name') || {}).textContent || ''
+  out.lastMseError = (window.__state && window.__state.lastMseError) || null
+  out.errorText = (document.getElementById('player-error') || {}).textContent || ''
+  // 等字幕 cue 挂上视频轨（最多 ~15s）
+  for (let i = 0; i < 30; i++) {
+  // 需要时继续播放指定秒数，观察 SourceBuffer 是否写满
+  if (playSeconds > 0) {
+    for (let i = 0; i < playSeconds * 4 && !out.error; i++) {
+      const errEl = document.getElementById('player-error')
+      if (errEl && !errEl.classList.contains('hidden')) {
+        out.error = errEl.textContent
+        break
+      }
+      if (video.currentTime >= playSeconds) break
+      await new Promise((r) => setTimeout(r, 250))
+    }
+  }
+  out.textTracks = [...(video.textTracks || [])].map((tr) => ({
+      label: tr.label,
+      mode: tr.mode,
+      cues: tr.cues ? tr.cues.length : 0,
+      first: tr.cues && tr.cues[0] ? tr.cues[0].text : null,
+    }))
+    if (out.textTracks.some((t) => t.cues > 0)) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  try {
+    const ranges = []
+    for (let i = 0; i < video.buffered.length; i++) ranges.push([Math.round(video.buffered.start(i) * 10) / 10, Math.round(video.buffered.end(i) * 10) / 10])
+    out.bufferedRanges = ranges
+  } catch (e) { out.bufferedRanges = null }
   console.log('[mse] readyState=' + video.readyState + ' currentTime=' + video.currentTime + ' status=' + out.mseStatus)
   return out
-}, { magnet, seederPort, fileName }) : await page.evaluate(async ({ magnet, seederPort, fileName }) => {
+}, { magnet, seederPort, fileName, playSeconds: PLAY_SECONDS }) : await page.evaluate(async ({ magnet, seederPort, fileName }) => {
   const out = { started: false, readyState: 0, duration: 0, currentTime: 0, bufferedEnd: 0, error: null, done: false, seekOk: null }
   const video = document.getElementById('v')
   const logEl = document.getElementById('log')
@@ -318,14 +371,15 @@ const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, file
   // 字幕验证：等字幕轨和 cue 出现
   out.subtitles = { cues: 0, first: null }
   for (let i = 0; i < 80; i++) {
-    const st = player._subtitleTrack
-    if (st && st.cues && st.cues.length > 0) {
-      out.subtitles = { cues: st.cues.length, first: st.cues[0] ? st.cues[0].text : null }
+    const entries = player._subTracks ? [...player._subTracks.values()] : []
+    const active = entries.find((e) => e.track && e.track.mode === 'showing') || entries[0]
+    if (active && active.track && active.track.cues && active.track.cues.length > 0) {
+      out.subtitles = { cues: active.track.cues.length, first: active.track.cues[0] ? active.track.cues[0].text : null }
       break
     }
     await new Promise((r) => setTimeout(r, 250))
   }
-  log('subtitles cues=' + out.subtitles.cues)
+  log('subtitles cues=' + out.subtitles.cues + ' tracks=' + (player._subTracks ? player._subTracks.size : 0))
   await player.stop()
   return out
 }, { magnet, seederPort, fileName })
