@@ -222,6 +222,9 @@ const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, file
   if (btn && !btn.classList.contains('active')) btn.click()
   console.log('[mse] wasmnet btn active after: ' + (btn && btn.classList.contains('active')))
   console.log('[mse] wasmnet status: ' + document.getElementById('wasmnet-status').textContent)
+  // 打开监控面板，便于抓取“实时码率”等行
+  const monoBtn = document.getElementById('btn-monitor')
+  if (monoBtn && document.getElementById('monitor-overlay').classList.contains('hidden')) monoBtn.click()
   // 走页面真实的“粘贴磁力链”流程
   document.getElementById('paste-input').value = magnet
   document.getElementById('paste-form').requestSubmit()
@@ -265,6 +268,7 @@ const result = PAGE_MODE ? await page.evaluate(async ({ magnet, seederPort, file
   out.duration = video.duration
   out.currentTime = video.currentTime
   const mono = document.getElementById('monitor-overlay').textContent
+  out.monitorText = mono
   out.playbackKind = mono.match(/播放方式[^\n]*/)?.[0] || ''
   out.mseStatus = (document.getElementById('transcode-status') || {}).textContent || ''
   out.title = (document.getElementById('player-title') || {}).textContent || ''

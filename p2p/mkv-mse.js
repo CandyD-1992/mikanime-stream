@@ -49,6 +49,7 @@
       this._maxAheadSec = 45;     // 封装最多超前播放进度多少秒（防止 SourceBuffer 写满）
       this._evictTimer = null;
       this._bitrateWindow = [];   // [时间戳, 该片段码率 bps]，用于监控面板显示实时码率
+      this._lastBitrate = 0;      // 最近一次算出的码率；封装结束后仍可显示
       this._subTracks = new Map();  // trackNumber -> { track: TextTrack, info }
       this._activeSub = null;       // 当前显示的字幕轨 trackNumber
       this._resumeTarget = null;    // 续播/回退目标时间（未跳转前用于缓冲清理锚点）
@@ -448,11 +449,12 @@
     }
 
     getPlaybackBitrate() {
-      if (!this._bitrateWindow.length) return 0;
-      const cutoff = Date.now() - 10000;
-      const recent = this._bitrateWindow.filter(([t]) => t >= cutoff);
-      if (!recent.length) return 0;
-      return recent.reduce((s, [, b]) => s + b, 0) / recent.length;
+      if (this._bitrateWindow.length) {
+        const cutoff = Date.now() - 10000;
+        const recent = this._bitrateWindow.filter(([t]) => t >= cutoff);
+        if (recent.length) return recent.reduce((s, [, b]) => s + b, 0) / recent.length;
+      }
+      return this._lastBitrate || 0;
     }
 
     // 定期清理播放进度之前的旧缓冲，避免 SourceBuffer 占满后 appendBuffer 失败
@@ -517,10 +519,15 @@
           resolve();
           return;
         }
+        // 在 appendBuffer 之前记录基准：此时上一个 append 已完成，
+        // _bufferedEnd 反映的是本次写入前的缓冲末端。
+        // 不能在 done 里再取 beforeEnd——_openMediaSource 注册的 updateend
+        // 监听器会先于 done 更新 _bufferedEnd，导致 afterEnd === beforeEnd，
+        // 实时码率永远采样不到。
+        const beforeEnd = this._bufferedEnd;
         const done = () => {
           sb.removeEventListener('updateend', done);
           sb.removeEventListener('error', done);
-          const beforeEnd = this._bufferedEnd;
           this._updateBufferedEnd();
           const afterEnd = this._bufferedEnd;
           if (afterEnd > beforeEnd && bytes && bytes.length) {
@@ -530,6 +537,9 @@
               this._bitrateWindow.push([now, (bytes.length * 8) / sec]);
               const cutoff = now - 10000;
               this._bitrateWindow = this._bitrateWindow.filter(([t]) => t >= cutoff);
+              if (this._bitrateWindow.length) {
+                this._lastBitrate = this._bitrateWindow.reduce((s, [, b]) => s + b, 0) / this._bitrateWindow.length;
+              }
             }
           }
           resolve();
