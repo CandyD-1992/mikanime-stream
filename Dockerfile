@@ -7,15 +7,19 @@
 ARG BASE_IMAGE=debian:bookworm-slim
 FROM ${BASE_IMAGE}
 
-# 目标架构（x86_64 = amd64，ARM 型号 = arm64；Container Manager 构建时会自动传入）
-ARG TARGETARCH=amd64
-
-# 内置 Node.js 运行时（单文件压缩包，解压后显式恢复可执行权限）
-COPY vendor/node-${TARGETARCH}.tar.gz /tmp/node.tar.gz
-RUN mkdir -p /opt/node \
-    && tar -xzf /tmp/node.tar.gz -C /opt/node \
+# 内置 Node.js 运行时（单文件压缩包，解压后显式恢复可执行权限）。
+# 同时复制 amd64/arm64 两个包，构建时按容器实际架构（uname -m）选择，
+# 避免部分构建器不注入 TARGETARCH 导致 ARM 机器装错 x86 运行时。
+COPY vendor/node-amd64.tar.gz /tmp/node-amd64.tar.gz
+COPY vendor/node-arm64.tar.gz /tmp/node-arm64.tar.gz
+RUN case "$(uname -m)" in \
+      aarch64|arm64) NODE_TAR=node-arm64.tar.gz ;; \
+      *) NODE_TAR=node-amd64.tar.gz ;; \
+    esac \
+    && mkdir -p /opt/node \
+    && tar -xzf /tmp/$NODE_TAR -C /opt/node \
     && chmod +x /opt/node/bin/node \
-    && rm /tmp/node.tar.gz
+    && rm -f /tmp/node-*.tar.gz
 
 # 项目源码
 COPY . /app/
