@@ -1585,6 +1585,15 @@ async function finalizeAdoptedQueueItem(entry, t) {
     saveBlob(blob, f.name);
   }
   entry.status = 'done';
+  // 已写缓存：若该 torrent 已不在播放，从客户端移除释放内存
+  if (state.torrent !== t) {
+    try {
+      for (const c of [state.client, state.queueClient]) {
+        if (c) c.remove(t.infoHash, () => {});
+      }
+    } catch (e) { /* 忽略 */ }
+    entry.torrent = null;
+  }
   renderQueue();
   scheduleQueueSave();
 }
@@ -1678,7 +1687,7 @@ function queueMatchForMagnet(magnet) {
 
 function waitForQueueFile(item, timeoutMs) {
   return new Promise((resolve, reject) => {
-    if (item.file && item.torrent) return resolve(item.file);
+    if (item.file && item.torrent && !item.torrent.destroyed) return resolve(item.file);
     if (!item._fileReadyWaiters) item._fileReadyWaiters = [];
     const timer = setTimeout(() => {
       const i = item._fileReadyWaiters.indexOf(w);
@@ -1872,7 +1881,10 @@ async function runQueueItem(item) {
   } finally {
     item.speed = 0;
     if (item.torrent) {
-      try { item.torrent.destroy(); } catch (e) { /* 忽略 */ }
+      // 正在被播放器使用的 torrent 不能销毁（否则播放会立刻断流）
+      if (state.torrent !== item.torrent) {
+        try { item.torrent.destroy(); } catch (e) { /* 忽略 */ }
+      }
       item.torrent = null;
     }
     renderQueue();
@@ -1884,7 +1896,7 @@ function removeQueueItem(id) {
   const it = state.queue.find((q) => q.id === id);
   if (!it) return;
   if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
-  if (it.torrent && !it.managedByPlayer) {
+  if (it.torrent && state.torrent !== it.torrent) {
     try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
   }
   it.torrent = null;
@@ -1897,7 +1909,7 @@ function clearFinishedQueue() {
   for (const it of state.queue) {
     if (it.status === 'done' || it.status === 'error' || it.status === 'paused') {
       if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
-      if (it.torrent && !it.managedByPlayer) {
+      if (it.torrent && state.torrent !== it.torrent) {
         try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
       }
       it.torrent = null;
@@ -1938,7 +1950,7 @@ function retryQueueItem(id) {
   const it = state.queue.find((q) => q.id === id);
   if (!it) return;
   if (it._adoptTimer) { clearInterval(it._adoptTimer); it._adoptTimer = null; }
-  if (it.torrent && !it.managedByPlayer) {
+  if (it.torrent && state.torrent !== it.torrent) {
     try { it.torrent.destroy(); } catch (e) { /* 忽略 */ }
   }
   it.torrent = null;
@@ -2009,6 +2021,18 @@ async function queuePlay(item) {
     return false; // 缓存文件已不存在，让播放器走独立下载
   }
   // 等待中 / 已暂停 / 下载中：都用队列里的同一个 torrent 播放，共用下载进度
+  if (item.torrent && item.torrent.destroyed) {
+    // torrent 已被销毁（例如之前停止播放时被误移除）：重置后交给调度器重新下载
+    item.torrent = null;
+    item.file = null;
+    item.fileReady = false;
+    item.managedByPlayer = false;
+    if (item.status === 'downloading' || item.status === 'paused') {
+      item.status = 'waiting';
+      renderQueue();
+      scheduleQueue();
+    }
+  }
   if (!item.torrent || !item.file) {
     if (item.status === 'error') return false;
     if (item.status === 'paused' || item.status === 'waiting') {
@@ -2035,6 +2059,7 @@ async function queuePlay(item) {
   await stopPlayback(true);
   state.wasmnetMode = true;
   state.torrent = item.torrent;
+  item.managedByPlayer = true; // 该 torrent 正在被播放器使用，队列下载器不能销毁它
   state.currentFile = item.file;
   showPlayer();
   setLoading('正在使用队列下载进度播放…');
@@ -3073,9 +3098,30 @@ async function startChunkedPlayback(file) {
   els.video.removeAttribute('src');
   els.video.load();
 
+  // 无数据看门狗：种子被销毁/断流/无做种者时，读流可能一直不报错也不出数据，
+  // 不能让“正在缓冲片头…”无限转下去
+  const noDataSince = Date.now();
+  clearInterval(state.chunkWatchdog);
+  state.chunkWatchdog = setInterval(() => {
+    if (state.mode !== 'direct' || state.swPlayback) return;
+    if (state.chunks.length || state.hasPlayed) return; // 已有数据或已开播
+    const t = state.torrent;
+    if (!t) return;
+    if (Date.now() - noDataSince < 30000) return;
+    clearInterval(state.chunkWatchdog);
+    state.chunkWatchdog = null;
+    stopChunkedPlayback();
+    setLoading(false);
+    showError('长时间没有下载到数据，请检查做种者数量或网络后重试');
+  }, 2000);
+
   const stream = file.createReadStream();
   state.chunks = [];
   stream.on('data', (chunk) => {
+    if (state.chunkWatchdog) {
+      clearInterval(state.chunkWatchdog);
+      state.chunkWatchdog = null;
+    }
     state.chunks.push(new Uint8Array(chunk));
   });
   stream.on('error', (err) => {
@@ -3092,6 +3138,7 @@ async function startChunkedPlayback(file) {
 
 function stopChunkedPlayback() {
   if (state.rebuildTimer) { clearInterval(state.rebuildTimer); state.rebuildTimer = null; }
+  if (state.chunkWatchdog) { clearInterval(state.chunkWatchdog); state.chunkWatchdog = null; }
   if (state.blobURL) { URL.revokeObjectURL(state.blobURL); state.blobURL = null; }
   state.chunks = [];
 }
@@ -3805,8 +3852,39 @@ async function stopPlayback(silent) {
     state.ffmpeg = null;
     transcodeWorker = null;
   }
-  if (state.client && t) {
-    try { state.client.remove(t.infoHash, () => {}); } catch (e) { /* 忽略 */ }
+  if (t) {
+    // 队列里还有条目引用这个 torrent（加入队列边下边存 / 从队列续播）时不能移除：
+    // 移除会销毁下载进度和已下载数据，之后从队列播放会一直等不到数据。
+    const keepForQueue = state.queue.some((q) => q.torrent === t
+      && q.status !== 'done' && q.status !== 'error');
+    if (keepForQueue) {
+      // 停止播放后让队列继续把文件下完：重新选择完整文件，而不是只保留播放窗口
+      try {
+        for (const q of state.queue) {
+          if (q.torrent !== t || q.status === 'done' || q.status === 'error' || q.status === 'paused') continue;
+          // 队列下载器自己的 torrent（无 _adoptTimer）：交还下载器继续下完
+          if (!q._adoptTimer) q.managedByPlayer = false;
+          const file = q.file || (t.files || []).find((f) => VIDEO_EXTS.includes(extOf(f.name)));
+          if (file) {
+            t.files.forEach((f) => { try { f.deselect(); } catch (e) { /* 忽略 */ } });
+            file.select();
+            break;
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+    } else {
+      // 没有队列依赖：从所属客户端移除（播放器客户端或队列下载客户端）
+      const owners = [state.client, state.queueClient].filter(Boolean);
+      for (const c of owners) {
+        try { c.remove(t.infoHash, () => {}); } catch (e) { /* 忽略 */ }
+      }
+      for (const q of state.queue) {
+        if (q.torrent === t) {
+          q.torrent = null;
+          if (q.status === 'done' || q.status === 'error') q.file = null;
+        }
+      }
+    }
   }
   els.video.pause();
   els.video.removeAttribute('src');
@@ -3879,8 +3957,22 @@ els.video.addEventListener('playing', () => {
   state.hasPlayed = true;
   setLoading(false);
 });
-els.video.addEventListener('waiting', () => {
-  if (!els.video.paused && (state.mode === 'direct' || state.mode === 'mse')) setLoading('正在缓冲…');
+els.video.addEventListener('ended', () => {
+  setLoading(false);
+});
+const showBufferingHint = () => {
+  // 播到还没下载到的位置时，浏览器会进入 waiting/stalled；这里统一给出“缓冲中”提示。
+  // 不覆盖用户主动暂停：暂停时 paused=true，且不再有播放进度要等。
+  if (els.video.paused) return;
+  if (state.mode !== 'direct' && state.mode !== 'mse' && state.mode !== 'remux') return;
+  setLoading('正在缓冲…');
+};
+els.video.addEventListener('waiting', showBufferingHint);
+els.video.addEventListener('stalled', showBufferingHint);
+els.video.addEventListener('pause', () => {
+  // 用户主动暂停时收起缓冲提示；分片换源瞬间的暂停由 restoreProgress 决定是否重新提示
+  if (state.mode === 'direct' && state.rebuilding) return;
+  setLoading(false);
 });
 
 // ---------- 拖动进度条时，把下载优先级推到对应位置 ----------

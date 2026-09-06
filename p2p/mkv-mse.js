@@ -14,6 +14,18 @@
   const SUPPORTED_VIDEO = new Set(['avc', 'hevc', 'vp9', 'av1']);
   const SUPPORTED_AUDIO = new Set(['aac', 'opus', 'mp3', 'flac', 'ac3', 'eac3']);
 
+  // 给“读不到数据就可能永远挂起”的 Mediabunny 调用加超时：
+  // 种子无做种者/下载停滞时不会一直停在“正在读取视频轨道…”
+  function withTimeout(promise, ms, message) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message || '读取超时')), ms);
+      promise.then(
+        (v) => { clearTimeout(timer); resolve(v) },
+        (e) => { clearTimeout(timer); reject(e) },
+      )
+    })
+  }
+
   class MikanMsePlayer {
     constructor() {
       this._reset();
@@ -121,8 +133,12 @@
         source,
       });
 
-      // 2) 解析轨道，判断编码是否支持
-      const tracks = await this._input.getTracks();
+      // 2) 解析轨道，判断编码是否支持（无数据时会挂起，需超时兜底）
+      const tracks = await withTimeout(
+        this._input.getTracks(),
+        60000,
+        '读取视频轨道超时：长时间没有下载到数据，请检查做种者或网络',
+      )
       let videoTrack = null;
       let audioTrack = null;
       for (const t of tracks) {
@@ -175,7 +191,7 @@
 
       // 时长提示（来自 MKV SegmentInfo，读取开销很小）；直播流/未知时长会返回 null
       try {
-        const d = await this._input.getDurationFromMetadata();
+        const d = await withTimeout(this._input.getDurationFromMetadata(), 15000, '时长读取超时');
         if (d && isFinite(d) && d > 0) this._durationHint = d;
       } catch (e) {
         this._durationHint = null;
