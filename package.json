@@ -9,14 +9,19 @@
   },
   "scripts": {
     "start": "node server.mjs",
+    "postinstall": "node scripts/ensure-fsa-patch.mjs",
+    "build:webrtc": "node p2p/build-webrtc.mjs",
     "build:wasmnet": "node p2p/build-wasmnet.mjs",
     "build:mediabunny": "node p2p/build-mediabunny.mjs",
-    "build:frontend": "node p2p/build-wasmnet.mjs && node p2p/build-mediabunny.mjs",
+    "build:frontend": "node p2p/build-webrtc.mjs && node p2p/build-wasmnet.mjs && node p2p/build-mediabunny.mjs",
+    "verify:bundles": "node scripts/verify-bundles.mjs",
     "flatten": "node scripts/flatten-deps.mjs",
     "debug:browser": "node scripts/browser-debug.mjs",
     "test:transport": "node scripts/test-transport.mjs --port 3010",
     "test:wire": "node scripts/test-wire.mjs --port 3010",
-    "test:seed": "node scripts/test-seed.mjs --port 3010"
+    "test:seed": "node scripts/test-seed.mjs --port 3010",
+    "test:browser-seed": "node scripts/browser-seed-test.mjs --port 3010",
+    "test:seed:opfs": "node scripts/browser-seed-test.mjs --port 3010 --opfs"
   },
   "overrides": {
     "uint8-util": "<2.3.0"

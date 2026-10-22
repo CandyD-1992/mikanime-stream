@@ -59,6 +59,11 @@ node server.mjs
   - `WASMNET_TOKEN=xxx`：设置固定令牌；
   - `WASMNET_OPEN=1`：关闭令牌（仅建议在完全可信的内网使用）。
   - `TMDB_API_KEY=xxx`：设置 TMDB API Key（也可只在页面设置里填写，保存在浏览器本地）。
+- **出站目标限制（防 SSRF）**：中继和 `/api/fetch`、`/api/torrent-trackers` 只会连接公网地址，
+  内网 / 回环 / 链路本地 / 云 metadata（169.254.169.254）一律拒绝。这样即使令牌泄露，
+  服务器也不会被当作打内网的跳板。`/api/search` 的 `base` 参数只允许蜜柑域名。
+  - `WASMNET_ALLOW_PRIVATE=1`：**仅本地端到端测试**用（假做种者在 127.0.0.1），生产勿设。
+  - `WASMNET_BIND_PORTS=51413`：允许中继在指定端口上监听（默认只允许临时端口）。
 - 会话结束或网页关闭后，服务器立即销毁所有转发连接，不保留任何数据。
 
 ## TMDB 番剧搜索说明
@@ -75,9 +80,18 @@ node server.mjs
 
 ## 重新打包前端库（开发用）
 
-`p2p/vendor/webtorrent.iife.min.js` 是 WebRTC 版，`p2p/vendor/webtorrent-wasmnet.iife.min.js` 是支持 TCP/UDP 的版本（把 `net`/`dgram` 替换为 wasmnet 中继垫片）。改完垫片后执行：
-`p2p/vendor/mediabunny.iife.min.js` 是 MKV 流式封装引擎（Mediabunny），配合 `p2p/mkv-mse.js`
-把 MKV 无损转成 fMP4 喂给浏览器播放。前端库构建命令：
+页面加载三个浏览器产物，都随仓库提交，都可以用脚本重建：
+
+| 产物 | 说明 | 构建命令 |
+| --- | --- | --- |
+| `p2p/vendor/webtorrent.iife.min.js` | WebRTC 版（默认加载，只走 WebRTC） | `pnpm build:webrtc` |
+| `p2p/vendor/webtorrent-wasmnet.iife.min.js` | 支持 TCP/UDP 的版本（把 `net`/`dgram` 换成 wasmnet 中继垫片） | `pnpm build:wasmnet` |
+| `p2p/vendor/mediabunny.iife.min.js` | MKV 流式封装引擎（Mediabunny），配合 `p2p/mkv-mse.js` 把 MKV 无损转成 fMP4 | `pnpm build:mediabunny` |
+
+```bash
+pnpm build:frontend   # 上面三个一起重建
+pnpm verify:bundles   # 发版前必跑：检查补丁是否真的进了产物
+```
 
 wasmnet 版额外启用了浏览器默认关闭的能力：
 
@@ -85,17 +99,39 @@ wasmnet 版额外启用了浏览器默认关闭的能力：
 - **UDP tracker**：经中继转发真实 UDP 报文；
 - **DHT / PEX**：不需要 tracker 也能通过分布式哈希表发现做种者（国内网络 tracker 不通时主要靠它）。
 
+> 关于 WebRTC 版产物：仓库里提交的那份与当前工具链重建出来的**不是逐字节一致**（压缩器
+> 版本差异，模块集合与体积都在 2% 内一致）。重建后请先跑一次浏览器验证（`pnpm test:browser-seed`
+> 或手动开一集）再提交，不要盲目覆盖。
+
+### fsa-chunk-store 兼容补丁（重要，别删）
+
+`fsa-chunk-store@1.3.0` 的 `_put()` 会缓存 `file.stream` 复用，如果缓存值不是 thenable，
+`await file.stream` 会原样返回该值，紧接着的 `.write()` 抛
+`(intermediate value).write is not a function`，表现是 OPFS 写入失败、下载/缓存莫名卡住
+（已实测复现：去掉补丁后 900 文件种子只下到 9496/25880 字节就停住并报 pageerror）。
+
+补丁内容是在 `_put` 里把 `if (!file.stream) {` 改成
+`if (!file.stream || typeof file.stream.then !== 'function') {`。
+
+它现在有三层保障，都是自动的，**不需要再手改 `node_modules`**：
+
+1. **pnpm 声明式补丁**（主机制）：`patches/fsa-chunk-store@1.3.0.patch` +
+   `pnpm-workspace.yaml` 里的 `patchedDependencies`，重装/删目录重装都会自动重新应用；
+2. **postinstall 兜底**：`scripts/ensure-fsa-patch.mjs`，`npm install` 之类不认识
+   pnpm 补丁的安装方式也能就地补上；
+3. **打包期强制**：`p2p/fsa-patch-plugin.mjs`，两个 bundle 构建时直接改写入产物的源码，
+   即使前两层都失效，前端产物也是安全的。
+
+回归测试：先起服务器，再跑
+
 ```bash
-pnpm build:wasmnet
-pnpm build:mediabunny
+node server.mjs                       # 另开一个终端
+pnpm test:seed:opfs                   # 走 OPFS(rootDir) 下载 900 个文件并从存储读回
 ```
 
-（或一次性执行 `pnpm build:frontend` 同时构建两个包。）
+这个用例专门覆盖被补丁保护的那条写入路径；补丁失效时它会失败并打印
+`!!! 存储层报错（fsa-chunk-store 兼容补丁可能失效）`。
 
-> 注意：`node_modules` 里的 `fsa-chunk-store@1.3.0` 有一个必须保留的兼容补丁（否则 OPFS 写入会报
-> `(intermediate value).write is not a function`）：在 `_put` 中把 `if (!file.stream) {` 改为
-> `if (!file.stream || typeof file.stream.then !== 'function') {`。重新 `pnpm install` 后如被覆盖，
-> 请重新打上该补丁再执行上面的打包命令。
 ## 已知问题
 
 - 非热门种子下载速度缓慢

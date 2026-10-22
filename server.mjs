@@ -12,6 +12,7 @@ import express from 'express'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
+import dns from 'node:dns/promises'
 import { fileURLToPath } from 'node:url'
 import bencode from 'bencode'
 import { searchMikan, fetchMikanEpisode } from './lib/mikan.js'
@@ -58,6 +59,89 @@ const TMDB_NO_FALLBACK = process.env.TMDB_NO_FALLBACK === '1'
 const app = express()
 app.use(express.json({ limit: '1mb' }))
 
+// ---------- 目标地址安全校验（防 SSRF）----------
+// 本服务会代替浏览器访问外部地址（蜜柑 / TMDB / tracker / 做种者）。
+// 只要目标地址来自请求参数而没限制，服务器就成了内网跳板：能打 127.0.0.1:3000、
+// docker 网关、云厂商 metadata（169.254.169.254）等。这里统一拦掉内网/保留地址。
+// 仅本地端到端测试（假做种者在 127.0.0.1）才需要打开；生产环境不要设。
+const ALLOW_PRIVATE_TARGETS = process.env.WASMNET_ALLOW_PRIVATE === '1'
+
+function ipIsPrivate(ip) {  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip)
+  if (v4) {
+    const a = Number(v4[1])
+    const b = Number(v4[2])
+    if (a === 0 || a === 10 || a === 127) return true
+    if (a === 169 && b === 254) return true // 链路本地 + 云 metadata
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    if (a >= 224) return true // 组播 / 保留
+    return false
+  }
+  const v6 = String(ip).toLowerCase()
+  if (v6 === '::1' || v6 === '::') return true
+  if (v6.startsWith('fc') || v6.startsWith('fd')) return true // ULA
+  if (v6.startsWith('fe80') || v6.startsWith('ff')) return true // 链路本地 / 组播
+  if (v6.startsWith('::ffff:')) {
+    // IPv4-mapped：可能是 "::ffff:127.0.0.1"，也可能被 URL 规范化成 "::ffff:7f00:1"
+    const rest = v6.slice(7)
+    if (rest.includes('.')) return ipIsPrivate(rest)
+    const parts = rest.split(':')
+    if (parts.length === 2) {
+      const hi = parseInt(parts[0], 16)
+      const lo = parseInt(parts[1], 16)
+      if (!Number.isNaN(hi) && !Number.isNaN(lo)) {
+        return ipIsPrivate(`${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`)
+      }
+    }
+    return true // 解析不了的映射地址，保守拒绝
+  }
+  return false
+}
+
+async function assertPublicHost(host) {
+  // 仅本地端到端测试用：测试脚本的假做种者跑在 127.0.0.1，生产环境绝不能开。
+  if (ALLOW_PRIVATE_TARGETS) return
+  // URL.hostname 对 IPv6 会带方括号（[::1]），先剥掉再判断
+  const name = String(host || '').trim().replace(/^\[/, '').replace(/\]$/, '')
+  if (!name) throw new Error('缺少目标主机')
+  if (/^[\d.]+$/.test(name) || name.includes(':')) {
+    if (ipIsPrivate(name)) throw new Error('目标地址不允许（内网/保留地址）')
+    return
+  }
+  const addrs = await dns.lookup(name, { all: true })
+  if (!addrs.length) throw new Error('目标主机无法解析')
+  for (const a of addrs) {
+    if (ipIsPrivate(a.address)) throw new Error('目标主机解析到内网地址，已拒绝')
+  }
+}
+
+// 蜜柑域名白名单：只允许请求到蜜柑（或环境变量里显式配置的镜像）。
+// 未认证的 /api/search 曾可被 ?base= 指向任意地址，这是最直接的 SSRF 入口。
+const MIKAN_ALLOWED_HOSTS = new Set(['mikanime.tv', 'mikanani.me'])
+for (const raw of [process.env.MIKAN_BASE, process.env.MIKAN_BASES].filter(Boolean)) {
+  for (const item of String(raw).split(',')) {
+    try {
+      MIKAN_ALLOWED_HOSTS.add(new URL(item.trim()).hostname)
+    } catch {
+      /* 忽略非法配置 */
+    }
+  }
+}
+function assertAllowedMikanBase(base) {
+  if (!base) return
+  let u
+  try {
+    u = new URL(base)
+  } catch {
+    throw new Error('base 参数不是合法 URL')
+  }
+  if (!/^https?:$/.test(u.protocol)) throw new Error('base 只支持 http/https')
+  if (!MIKAN_ALLOWED_HOSTS.has(u.hostname)) {
+    throw new Error('base 只允许蜜柑域名（可用 MIKAN_BASE / MIKAN_BASES 扩展）')
+  }
+}
+
 // ---------- API ----------
 
 // 搜索代理：允许任意来源调用（file:// 打开的纯网页版也需要跨域使用）
@@ -67,10 +151,12 @@ app.get('/api/search', async (req, res) => {
   if (!q) return res.json({ items: [] })
   const base = String(req.query.base || '').trim()
   try {
+    // 未认证接口：base 必须落在蜜柑域名白名单内，避免被当成任意 URL 抓取器
+    assertAllowedMikanBase(base)
     const result = await searchMikan(q, { base })
     res.json({ items: result.items, source: result.source || null })
   } catch (err) {
-    res.status(502).json({ error: err.message, details: err.details || [] })
+    res.status(400).json({ error: err.message, details: err.details || [] })
   }
 })
 
@@ -341,6 +427,7 @@ app.get('/api/fetch', async (req, res) => {
     return res.status(400).json({ error: 'not a tracker announce url' })
   }
   try {
+    await assertPublicHost(url.hostname)
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 20000)
     const r = await fetch(url.toString(), {
@@ -378,6 +465,7 @@ app.get('/api/torrent-trackers', async (req, res) => {
     return res.status(400).json({ error: 'invalid protocol' })
   }
   try {
+    await assertPublicHost(url.hostname)
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 20000)
     const r = await fetch(url.toString(), {
@@ -462,7 +550,9 @@ const server = app.listen(PORT, HOST, () => {
 startDhtNode()
 
 // 挂载 wasmnet 中继（WebSocket）
-attachWasmnetRelay(server, { path: WASMNET_PATH, token: WASMNET_TOKEN })
+// assertTarget：中继会用服务器自己的网络去连任意 host:port，必须挡住内网/保留地址，
+// 否则拿到 token（页面可读）的人就能把服务器当内网跳板。
+attachWasmnetRelay(server, { path: WASMNET_PATH, token: WASMNET_TOKEN, assertTarget: assertPublicHost })
 
 function shutdown() {
   if (dhtNode) {

@@ -37,6 +37,12 @@ RUN mkdir -p /app/node_modules \
 WORKDIR /app
 ENV PATH=/opt/node/bin:$PATH
 ENV PORT=3000
+
+# 以非 root 运行：容器里没有需要特权的操作（只监听 3000，不写盘）。
+# 即使应用被打穿，攻击者拿到的也只是容器内的普通用户，而不是 root。
+RUN groupadd -r node && useradd -r -g node -M -s /sbin/nologin node
+
 EXPOSE 3000
+USER node
 
 CMD ["node", "server.mjs"]

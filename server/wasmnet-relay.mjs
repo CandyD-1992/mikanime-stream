@@ -86,11 +86,24 @@ function sameToken(a, b) {
 /**
  * 把一个 wasmnet WebSocket 会话接入 HTTP 服务器。
  * @param {import('node:http').Server} httpServer
- * @param {{path?: string, token?: string}} opts
+ * @param {{path?: string, token?: string, assertTarget?: (host: string) => Promise<void>}} opts
+ *   assertTarget：出站目标地址校验（挡 SSRF）。不传则不校验（仅测试用）。
  */
-export function attachWasmnetRelay(httpServer, { path = '/wasmnet', token = '' } = {}) {
+export function attachWasmnetRelay(httpServer, { path = '/wasmnet', token = '', assertTarget = null } = {}) {
   const wss = new WebSocketServer({ noServer: true })
   const allowed = token ? (t) => sameToken(t, token) : () => true
+  // BIND 允许的固定端口：默认只允许 0（让系统分配临时端口），
+  // 需要固定端口（例如让 tracker 把连接打回来）时用 WASMNET_BIND_PORTS 显式开白名单。
+  const ALLOWED_BIND_PORTS = new Set(
+    String(process.env.WASMNET_BIND_PORTS || '')
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0),
+  )
+  const checkTarget = async (addr) => {
+    if (!assertTarget) return
+    await assertTarget(addr)
+  }
 
   httpServer.on('upgrade', (req, socket, head) => {
     let url
@@ -156,8 +169,13 @@ export function attachWasmnetRelay(httpServer, { path = '/wasmnet', token = '' }
     }
 
     // ---------- 出站 TCP / TLS ----------
-    function handleConnect(id, addr, port, useTls) {
+    async function handleConnect(id, addr, port, useTls) {
       if (!addr || !port) return notifyDenied(id, 'missing addr/port')
+      try {
+        await checkTarget(addr)
+      } catch (err) {
+        return notifyDenied(id, (err && err.message) || 'target not allowed')
+      }
       let sock
       try {
         const opts = { host: addr, port }
@@ -217,8 +235,13 @@ export function attachWasmnetRelay(httpServer, { path = '/wasmnet', token = '' }
     }
 
     // ---------- UDP ----------
-    function handleConnectUdp(id, addr, port) {
+    async function handleConnectUdp(id, addr, port) {
       if (!addr || !port) return notifyDenied(id, 'missing addr/port')
+      try {
+        await checkTarget(addr)
+      } catch (err) {
+        return notifyDenied(id, (err && err.message) || 'target not allowed')
+      }
       let sock
       try {
         sock = dgram.createSocket(looksLikeIp(addr) && !isIpv4(addr) ? 'udp6' : 'udp4')
@@ -254,6 +277,10 @@ export function attachWasmnetRelay(httpServer, { path = '/wasmnet', token = '' }
 
     // ---------- TCP 监听（入站连接） ----------
     function handleBind(id, addr, port) {
+      // 只允许临时端口（0）或显式白名单端口，避免用 token 在服务器上随便开监听端口
+      if (port && !ALLOWED_BIND_PORTS.has(Number(port))) {
+        return notifyDenied(id, 'bind port not allowed')
+      }
       let server
       try {
         server = net.createServer()

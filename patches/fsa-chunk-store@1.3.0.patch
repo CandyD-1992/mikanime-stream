@@ -1,0 +1,16 @@
+diff --git a/index.js b/index.js
+index 1745b8a3a496de98d54f37c89a41573dca82a027..8c290a002e31cac7b65541a10b94877daaa291df 100644
+--- a/index.js
++++ b/index.js
+@@ -196,7 +196,10 @@ export default class FSAChunkStore {
+     const targets = this.chunkMap[index]
+     if (!targets) throw new Error('No files matching the request range')
+     const promises = targets.map(async ({ file, offset, from, to }) => {
+-      if (!file.stream) {
++      // 兼容补丁：缓存值必须是 thenable，await 后才能拿到 writable 流；
++      // 否则 await 原样返回该真值，随后的 .write 会报
++      // "(intermediate value).write is not a function"（见 README「已知坑」）。
++      if (!file.stream || typeof file.stream.then !== 'function') {
+         file.stream = this.getStreamForHandle(file.handle)
+       }
+       await (await file.stream).write({ type: 'write', position: offset, data: buf.slice(from, to) })
