@@ -22,8 +22,8 @@
    - `git add -A && git commit -m "改动说明"`
    - `git push origin main`
 5. 更新 Oracle Cloud（anime.youmifamily.top）：
-   - **当前服务器 IP：`134.185.93.131`**（Oracle 临时公网 IP，实例停机/重建后会变；
-     旧记录的 `161.118.211.164` 已被 Oracle 回收分给他人，**不要再连**）
+   - **当前服务器 IP：`134.185.93.131`**（Oracle **Reserved** 公网 IPv4，IPv6 同样是 Reserved，
+     停机/重启不会变；旧记录的 `161.118.211.164` 已不是当前实例，**不要再连**）
    - 主机：`instance-20260820-1425`，Oracle Linux 9.8 **aarch64**，密钥 `C:\Users\cdd\.ssh\id_ed25519`
    - 把改动文件 scp 到服务器 `/tmp`，再 `sudo install` 到 `/opt/mikanime-stream` 对应位置；
    - `cd /opt/mikanime-stream && sudo docker compose build && sudo docker compose up -d`
@@ -50,10 +50,13 @@
   - 中继的 BIND 只允许临时端口；要固定端口（让 tracker 把连接打回来）用 `WASMNET_BIND_PORTS=51413`。
 - `/api/config` 在无 `Origin` 时仍会返回中继 token（页面同源取用需要），这是已知设计缺口：
   拿到 token 只能当中继客户端，但目标已被 SSRF 防护限制在公网地址。
+- 系统补丁状态（2026-10-22）：`dnf update --security` 已装齐（137 → 0），内核
+  `6.12.0-207.111.5.5.el9uek` 已重启生效，旧内核 `6.12.0-204` 保留可回退。
+  以后升级内核需重启，重启约 1 分钟、容器会自动拉起（`restart: unless-stopped`）。
 
 
 ## 关键信息
-- 服务器：`opc@134.185.93.131`（**临时公网 IP，会变**；旧 IP `161.118.211.164` 已不是你的），密钥 `C:\Users\cdd\.ssh\id_ed25519`
+- 服务器：`opc@134.185.93.131`（**Reserved 公网 IP，不会变**；旧 IP `161.118.211.164` 已不是你的），密钥 `C:\Users\cdd\.ssh\id_ed25519`
 - 服务器部署目录：`/opt/mikanime-stream`（git clone，工作区可能被 scp 覆盖成脏状态）
 - 服务器环境变量：`/opt/mikanime-stream/.env`（TMDB_API_KEY 等，已 gitignore，勿提交）
 - GitHub：`https://github.com/CandyD-1992/mikanime-stream.git`，分支 main
